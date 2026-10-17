@@ -1,5 +1,7 @@
 """Main tkinter application window."""
 
+import ctypes
+import sys
 import tkinter as tk
 
 from dropfive import __version__
@@ -14,6 +16,7 @@ from dropfive.model.history import Move
 from dropfive.model.stone import Stone
 from dropfive.ui import theme
 from dropfive.ui.board_canvas import BoardCanvas
+from dropfive.ui.widgets import ActionButton
 
 _BOARD_SIZE = 15
 
@@ -32,7 +35,7 @@ _ERROR_MESSAGES = {
 
 def _position_label(move: Move | None) -> str:
     if move is None:
-        return "尚无落子"
+        return "—"
     return f"{chr(ord('A') + move.col)}{move.row + 1}"
 
 
@@ -49,8 +52,8 @@ class DropFiveWindow:
         self._message_after: str | None = None
 
         self.root.title("落五 DropFive")
-        self.root.geometry("1040x760")
-        self.root.minsize(900, 680)
+        self.root.geometry("1160x820")
+        self.root.minsize(980, 720)
         self.root.configure(background=theme.APP_BG)
 
         self._build_layout()
@@ -66,39 +69,15 @@ class DropFiveWindow:
         content = tk.Frame(
             self.root,
             background=theme.APP_BG,
-            padx=28,
+            padx=32,
             pady=24,
         )
         content.grid(row=0, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1, minsize=520)
-        content.columnconfigure(1, minsize=250)
+        content.columnconfigure(0, weight=1, minsize=560)
+        content.columnconfigure(1, minsize=288)
         content.rowconfigure(1, weight=1)
 
-        header = tk.Frame(content, background=theme.APP_BG)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
-        header.columnconfigure(1, weight=1)
-
-        tk.Label(
-            header,
-            text="落五",
-            background=theme.APP_BG,
-            foreground=theme.INK,
-            font=("Microsoft YaHei UI", 26, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            header,
-            text="DROPFIVE",
-            background=theme.APP_BG,
-            foreground=theme.ACCENT,
-            font=("Segoe UI", 9, "bold"),
-        ).grid(row=0, column=1, sticky="w", padx=(12, 0), pady=(13, 0))
-        tk.Label(
-            header,
-            text=f"v{__version__}",
-            background=theme.APP_BG,
-            foreground=theme.MUTED,
-            font=("Segoe UI", 9),
-        ).grid(row=0, column=2, sticky="e")
+        self._build_header(content)
 
         self.board_canvas = BoardCanvas(
             content,
@@ -109,7 +88,7 @@ class DropFiveWindow:
             row=1,
             column=0,
             sticky="nsew",
-            padx=(0, 18),
+            padx=(0, 22),
         )
 
         self.sidebar = tk.Frame(
@@ -117,8 +96,8 @@ class DropFiveWindow:
             background=theme.SURFACE,
             highlightbackground=theme.BORDER,
             highlightthickness=1,
-            padx=22,
-            pady=22,
+            padx=24,
+            pady=24,
         )
         self.sidebar.grid(row=1, column=1, sticky="nsew")
         self.sidebar.columnconfigure(0, weight=1)
@@ -126,35 +105,87 @@ class DropFiveWindow:
 
         tk.Label(
             self.sidebar,
-            text="双人对战",
+            text="当前对局",
             background=theme.SURFACE,
             foreground=theme.MUTED,
-            font=("Microsoft YaHei UI", 10),
+            font=("Microsoft YaHei UI", 9),
         ).grid(row=0, column=0, sticky="w")
 
+        status_frame = tk.Frame(self.sidebar, background=theme.SURFACE)
+        status_frame.grid(row=1, column=0, sticky="ew", pady=(18, 16))
+        status_frame.columnconfigure(1, weight=1)
+
+        self.turn_badge = tk.Canvas(
+            status_frame,
+            width=42,
+            height=42,
+            background=theme.SURFACE,
+            highlightthickness=0,
+        )
+        self.turn_badge.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 12))
+
         self.status_label = tk.Label(
-            self.sidebar,
+            status_frame,
             text="",
             background=theme.SURFACE,
             foreground=theme.INK,
-            font=("Microsoft YaHei UI", 20, "bold"),
+            font=("Microsoft YaHei UI", 19, "bold"),
             anchor="w",
             justify="left",
-            wraplength=196,
         )
-        self.status_label.grid(row=1, column=0, sticky="ew", pady=(14, 4))
+        self.status_label.grid(row=0, column=1, sticky="ew")
 
-        self.detail_label = tk.Label(
-            self.sidebar,
+        self.status_note = tk.Label(
+            status_frame,
             text="",
             background=theme.SURFACE,
             foreground=theme.MUTED,
-            font=("Microsoft YaHei UI", 10),
+            font=("Microsoft YaHei UI", 9),
             anchor="w",
-            justify="left",
-            wraplength=196,
         )
-        self.detail_label.grid(row=2, column=0, sticky="ew")
+        self.status_note.grid(row=1, column=1, sticky="ew", pady=(2, 0))
+
+        stats_frame = tk.Frame(self.sidebar, background=theme.SURFACE)
+        stats_frame.grid(row=2, column=0, sticky="ew")
+        stats_frame.columnconfigure(0, weight=1)
+        stats_frame.columnconfigure(1, weight=1)
+
+        tk.Label(
+            stats_frame,
+            text="手数",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            stats_frame,
+            text="最近落子",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=0, column=1, sticky="w", padx=(18, 0))
+
+        self.move_count_label = tk.Label(
+            stats_frame,
+            text="0",
+            background=theme.SURFACE,
+            foreground=theme.INK,
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+        )
+        self.move_count_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        self.last_move_label = tk.Label(
+            stats_frame,
+            text="—",
+            background=theme.SURFACE,
+            foreground=theme.INK,
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+        )
+        self.last_move_label.grid(row=1, column=1, sticky="w", padx=(18, 0), pady=(4, 0))
 
         tk.Frame(
             self.sidebar,
@@ -162,41 +193,22 @@ class DropFiveWindow:
             height=1,
         ).grid(row=3, column=0, sticky="ew", pady=22)
 
-        self.new_button = tk.Button(
+        self.new_button = ActionButton(
             self.sidebar,
             text="重新开始",
+            icon="↻",
             command=self._restart,
-            background=theme.ACCENT,
-            foreground="#FFFFFF",
-            activebackground=theme.ACCENT_ACTIVE,
-            activeforeground="#FFFFFF",
-            disabledforeground="#C8D2CE",
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            cursor="hand2",
-            font=("Microsoft YaHei UI", 11, "bold"),
-            padx=14,
-            pady=10,
+            background=theme.SURFACE,
         )
         self.new_button.grid(row=4, column=0, sticky="ew")
 
-        self.undo_button = tk.Button(
+        self.undo_button = ActionButton(
             self.sidebar,
             text="悔棋",
+            icon="↶",
             command=self._undo,
-            background=theme.ACCENT_SOFT,
-            foreground=theme.ACCENT,
-            activebackground="#CFE0D8",
-            activeforeground=theme.ACCENT,
-            disabledforeground="#A5B0AA",
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=0,
-            cursor="hand2",
-            font=("Microsoft YaHei UI", 11),
-            padx=14,
-            pady=10,
+            background=theme.SURFACE,
+            variant="secondary",
         )
         self.undo_button.grid(row=5, column=0, sticky="ew", pady=(10, 0))
 
@@ -204,22 +216,74 @@ class DropFiveWindow:
             self.sidebar,
             text="",
             background=theme.SURFACE,
-            foreground=theme.WARM_ACCENT,
+            foreground=theme.MESSAGE,
             font=("Microsoft YaHei UI", 9),
             anchor="w",
             justify="left",
-            wraplength=196,
+            wraplength=218,
             height=2,
         )
-        self.message_label.grid(row=6, column=0, sticky="ew", pady=(16, 0))
+        self.message_label.grid(row=6, column=0, sticky="ew", pady=(14, 0))
+
+        footer = tk.Frame(self.sidebar, background=theme.SURFACE)
+        footer.grid(row=8, column=0, sticky="ew")
+        footer.columnconfigure(0, weight=1)
 
         tk.Label(
-            self.sidebar,
-            text="15 × 15  ·  无禁手",
-            background=theme.SURFACE,
+            footer,
+            text="15 × 15",
+            background=theme.SURFACE_ALT,
             foreground=theme.MUTED,
+            font=("Segoe UI", 8, "bold"),
+            padx=8,
+            pady=4,
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            footer,
+            text="无禁手",
+            background=theme.SURFACE_ALT,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 8),
+            padx=8,
+            pady=4,
+        ).grid(row=0, column=1, sticky="e")
+
+    def _build_header(self, parent: tk.Misc) -> None:
+        header = tk.Frame(parent, background=theme.APP_BG)
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
+        header.columnconfigure(2, weight=1)
+
+        tk.Label(
+            header,
+            text="落五",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_TEXT,
+            font=("Microsoft YaHei UI", 30, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            header,
+            text="●  GOMOKU",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_MUTED,
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=0, column=1, sticky="w", padx=(14, 0), pady=(17, 0))
+
+        tk.Label(
+            header,
+            text="双人对战",
+            background=theme.HEADER_CHIP,
+            foreground=theme.HEADER_CHIP_TEXT,
+            font=("Microsoft YaHei UI", 9),
+            padx=13,
+            pady=7,
+        ).grid(row=0, column=3, sticky="e", padx=(0, 12))
+        tk.Label(
+            header,
+            text=f"v{__version__}",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_MUTED,
             font=("Segoe UI", 9),
-        ).grid(row=8, column=0, sticky="w")
+        ).grid(row=0, column=4, sticky="e")
 
     def _handle_move(self, row: int, col: int) -> None:
         result = self.controller.play(row, col)
@@ -250,26 +314,89 @@ class DropFiveWindow:
             view.last_move,
             view.current_stone,
             interactive=not view.result.is_finished,
+            winning_cells=view.winning_cells,
         )
         self._update_sidebar(view)
 
     def _update_sidebar(self, view: GameView) -> None:
         if view.result is GameResult.BLACK_WIN:
             status = "黑方获胜"
+            note = "五子连珠"
+            status_color = theme.WARM_ACCENT
         elif view.result is GameResult.WHITE_WIN:
             status = "白方获胜"
+            note = "五子连珠"
+            status_color = theme.WARM_ACCENT
         elif view.result is GameResult.DRAW:
             status = "和棋"
+            note = "棋盘已满"
+            status_color = theme.MUTED
         else:
             status = f"{_STONE_LABELS[view.current_stone]}回合"
+            note = "黑方先行" if view.move_count == 0 else "对局进行中"
+            status_color = theme.INK
 
-        self.status_label.configure(text=status)
-        self.detail_label.configure(
-            text=f"第 {view.move_count} 手 · 最近 {_position_label(view.last_move)}"
+        self.status_label.configure(text=status, foreground=status_color)
+        self.status_note.configure(text=note)
+        self.move_count_label.configure(text=str(view.move_count))
+        self.last_move_label.configure(text=_position_label(view.last_move))
+        self.undo_button.set_enabled(view.move_count > 0)
+        self._draw_turn_badge(view)
+
+    def _draw_turn_badge(self, view: GameView) -> None:
+        self.turn_badge.delete("all")
+        center = 21
+
+        if view.result is GameResult.DRAW:
+            self._draw_badge_stone(center - 5, center, 8.5, Stone.BLACK)
+            self._draw_badge_stone(center + 5, center, 8.5, Stone.WHITE)
+            return
+
+        if view.result is GameResult.BLACK_WIN:
+            stone = Stone.BLACK
+            finished = True
+        elif view.result is GameResult.WHITE_WIN:
+            stone = Stone.WHITE
+            finished = True
+        else:
+            stone = view.current_stone
+            finished = False
+
+        self._draw_badge_stone(center, center, 11, stone)
+        if finished:
+            radius = 15
+            self.turn_badge.create_oval(
+                center - radius,
+                center - radius,
+                center + radius,
+                center + radius,
+                outline=theme.WIN_LINE,
+                width=2,
+            )
+
+    def _draw_badge_stone(self, x: float, y: float, radius: float, stone: Stone) -> None:
+        if stone is Stone.BLACK:
+            fill = theme.BLACK_STONE
+            outline = "#090C0D"
+        else:
+            fill = theme.WHITE_STONE
+            outline = theme.WHITE_OUTLINE
+        self.turn_badge.create_oval(
+            x - radius + 1,
+            y - radius + 2,
+            x + radius + 1,
+            y + radius + 2,
+            fill="#D9D1C4",
+            outline="",
         )
-        self.undo_button.configure(
-            state="normal" if view.move_count > 0 else "disabled",
-            cursor="hand2" if view.move_count > 0 else "arrow",
+        self.turn_badge.create_oval(
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
+            fill=fill,
+            outline=outline,
+            width=1,
         )
 
     def _show_message(self, message: str) -> None:
@@ -303,7 +430,17 @@ class DropFiveWindow:
         self.root.destroy()
 
 
+def _enable_high_dpi() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except (AttributeError, OSError):
+        return
+
+
 def main() -> None:
+    _enable_high_dpi()
     root = tk.Tk()
     DropFiveWindow(root)
     root.mainloop()

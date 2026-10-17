@@ -28,6 +28,7 @@ class GameEngine:
         self._history = MoveHistory()
         self._current_stone = Stone.BLACK
         self._result = GameResult.ONGOING
+        self._winning_line: tuple[tuple[int, int], ...] = ()
 
     @property
     def board(self) -> Board:
@@ -46,6 +47,10 @@ class GameEngine:
         return self._result
 
     @property
+    def winning_line(self) -> tuple[tuple[int, int], ...]:
+        return self._winning_line
+
+    @property
     def is_over(self) -> bool:
         return self._result.is_finished
 
@@ -55,12 +60,14 @@ class GameEngine:
 
         self._board.place(row, col, self._current_stone)
         move = self._history.push(row, col, self._current_stone)
-        winner = WinChecker.winner_from_last_move(self._board, row, col)
+        winning_line = WinChecker.winning_line_from_last_move(self._board, row, col)
 
-        if winner is Stone.BLACK:
-            self._result = GameResult.BLACK_WIN
-        elif winner is Stone.WHITE:
-            self._result = GameResult.WHITE_WIN
+        if winning_line:
+            self._winning_line = winning_line
+            if self._current_stone is Stone.BLACK:
+                self._result = GameResult.BLACK_WIN
+            else:
+                self._result = GameResult.WHITE_WIN
         elif self._board.is_full():
             self._result = GameResult.DRAW
         else:
@@ -75,6 +82,7 @@ class GameEngine:
         self._board.remove(move.row, move.col)
         self._current_stone = move.stone
         self._result = GameResult.ONGOING
+        self._winning_line = ()
         return move
 
     def reset(self) -> None:
@@ -82,3 +90,4 @@ class GameEngine:
         self._history.clear()
         self._current_stone = Stone.BLACK
         self._result = GameResult.ONGOING
+        self._winning_line = ()

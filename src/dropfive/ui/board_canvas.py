@@ -10,7 +10,7 @@ from dropfive.ui import theme
 
 
 class BoardCanvas(tk.Canvas):
-    """Render board state and translate pointer events into cell coordinates."""
+    """Render a tactile board surface and translate pointer events into cells."""
 
     def __init__(
         self,
@@ -23,6 +23,7 @@ class BoardCanvas(tk.Canvas):
             master,
             background=theme.BOARD_AREA_BG,
             highlightthickness=0,
+            borderwidth=0,
             cursor="hand2",
         )
         self._board_size = board_size
@@ -32,12 +33,14 @@ class BoardCanvas(tk.Canvas):
         )
         self._current_stone = Stone.BLACK
         self._last_move: Move | None = None
+        self._winning_cells: tuple[tuple[int, int], ...] = ()
         self._interactive = False
         self._hover: tuple[int, int] | None = None
         self._last_dimensions = (0, 0)
 
         self._board_left = 0.0
         self._board_top = 0.0
+        self._board_side = 0.0
         self._grid_left = 0.0
         self._grid_top = 0.0
         self._grid_size = 0.0
@@ -55,10 +58,12 @@ class BoardCanvas(tk.Canvas):
         current_stone: Stone,
         *,
         interactive: bool,
+        winning_cells: tuple[tuple[int, int], ...] = (),
     ) -> None:
         self._board = board
         self._last_move = last_move
         self._current_stone = current_stone
+        self._winning_cells = winning_cells
         self._interactive = interactive
         self.configure(cursor="hand2" if interactive else "arrow")
         if not interactive:
@@ -85,10 +90,8 @@ class BoardCanvas(tk.Canvas):
             return
 
         cell = self._nearest_cell(event.x, event.y)
-        if cell is not None:
-            row, col = cell
-            if self._board[row][col] is not Stone.EMPTY:
-                cell = None
+        if cell is not None and self._board[cell[0]][cell[1]] is not Stone.EMPTY:
+            cell = None
         self._set_hover(cell)
 
     def _handle_leave(self, _event: tk.Event) -> None:
@@ -120,29 +123,115 @@ class BoardCanvas(tk.Canvas):
         if not self._update_geometry():
             return
 
-        board_right = self._grid_left + self._grid_size + (self._grid_left - self._board_left)
-        board_bottom = self._grid_top + self._grid_size + (self._grid_top - self._board_top)
-        self.create_rectangle(
-            self._board_left,
-            self._board_top,
-            board_right,
-            board_bottom,
-            fill=theme.BOARD_FILL,
-            outline=theme.BOARD_EDGE,
-            width=2,
+        self._draw_board_surface()
+        self._draw_grid()
+        self._draw_winning_line()
+        self._draw_stones()
+        self._draw_winning_rings()
+        self._draw_last_move()
+        self._draw_hover()
+
+    def _update_geometry(self) -> bool:
+        width = self.winfo_width()
+        height = self.winfo_height()
+        side = min(width, height)
+        if side < 180:
+            return False
+
+        self._board_side = side - 44
+        self._board_left = (width - self._board_side) / 2
+        self._board_top = (height - self._board_side) / 2
+        inset = min(56.0, max(38.0, self._board_side * 0.078))
+        self._grid_left = self._board_left + inset
+        self._grid_top = self._board_top + inset
+        self._grid_size = self._board_side - inset * 2
+        self._step = self._grid_size / (self._board_size - 1)
+        return True
+
+    def _draw_board_surface(self) -> None:
+        shadow_points = self._rounded_points(
+            self._board_left + 5,
+            self._board_top + 9,
+            self._board_left + self._board_side + 5,
+            self._board_top + self._board_side + 9,
+            12,
+        )
+        self.create_polygon(
+            shadow_points,
+            smooth=True,
+            splinesteps=28,
+            fill=theme.BOARD_SHADOW,
+            outline="",
         )
 
+        outer_points = self._rounded_points(
+            self._board_left,
+            self._board_top,
+            self._board_left + self._board_side,
+            self._board_top + self._board_side,
+            12,
+        )
+        self.create_polygon(
+            outer_points,
+            smooth=True,
+            splinesteps=28,
+            fill=theme.BOARD_BORDER,
+            outline="",
+        )
+
+        inset = 3.0
+        inner_points = self._rounded_points(
+            self._board_left + inset,
+            self._board_top + inset,
+            self._board_left + self._board_side - inset,
+            self._board_top + self._board_side - inset,
+            10,
+        )
+        self.create_polygon(
+            inner_points,
+            smooth=True,
+            splinesteps=28,
+            fill=theme.BOARD_FILL,
+            outline=theme.BOARD_EDGE,
+            width=1,
+        )
+
+        grain_left = self._board_left + 18
+        grain_right = self._board_left + self._board_side - 18
+        for index, fraction in enumerate((0.09, 0.24, 0.73, 0.9)):
+            points: list[float] = []
+            for segment in range(8):
+                ratio = segment / 7
+                x = grain_left + (grain_right - grain_left) * ratio
+                y = (
+                    self._board_top
+                    + self._board_side * fraction
+                    + math.sin(ratio * math.tau + index) * 2.2
+                )
+                points.extend((x, y))
+            self.create_line(
+                points,
+                smooth=True,
+                splinesteps=24,
+                fill=theme.BOARD_GRAIN,
+                width=1,
+            )
+
+    def _draw_grid(self) -> None:
         inset = self._grid_left - self._board_left
+        line_end = self._grid_left + self._grid_size
+        line_bottom = self._grid_top + self._grid_size
+
         for index in range(self._board_size):
             position = index * self._step
-            line_end = self._grid_left + self._grid_size
-            line_bottom = self._grid_top + self._grid_size
+            width = 1.4 if index in (0, self._board_size - 1) else 1
             self.create_line(
                 self._grid_left,
                 self._grid_top + position,
                 line_end,
                 self._grid_top + position,
                 fill=theme.GRID_COLOR,
+                width=width,
             )
             self.create_line(
                 self._grid_left + position,
@@ -150,13 +239,14 @@ class BoardCanvas(tk.Canvas):
                 self._grid_left + position,
                 line_bottom,
                 fill=theme.GRID_COLOR,
+                width=width,
             )
             self.create_text(
                 self._grid_left + position,
                 self._board_top + inset / 2,
                 text=chr(ord("A") + index),
                 fill=theme.LABEL_COLOR,
-                font=("Segoe UI", 8),
+                font=("Segoe UI", 8, "bold"),
             )
             self.create_text(
                 self._board_left + inset / 2,
@@ -169,7 +259,7 @@ class BoardCanvas(tk.Canvas):
         if self._board_size == 15:
             for row, col in ((3, 3), (3, 11), (7, 7), (11, 3), (11, 11)):
                 x, y = self._cell_center(row, col)
-                radius = max(2.5, self._step * 0.07)
+                radius = max(2.8, self._step * 0.072)
                 self.create_oval(
                     x - radius,
                     y - radius,
@@ -179,75 +269,107 @@ class BoardCanvas(tk.Canvas):
                     outline="",
                 )
 
-        stone_radius = max(7.0, min(18.0, self._step * 0.43))
+    def _draw_stones(self) -> None:
+        radius = max(8.0, min(21.0, self._step * 0.42))
         for row in range(self._board_size):
             for col in range(self._board_size):
                 stone = self._board[row][col]
                 if stone is not Stone.EMPTY:
-                    self._draw_stone(row, col, stone, stone_radius)
+                    self._draw_stone(row, col, stone, radius)
 
-        if self._last_move is not None:
-            x, y = self._cell_center(self._last_move.row, self._last_move.col)
-            marker_radius = max(3.0, stone_radius * 0.24)
+    def _draw_winning_line(self) -> None:
+        if len(self._winning_cells) < 2:
+            return
+        start = self._cell_center(*self._winning_cells[0])
+        end = self._cell_center(*self._winning_cells[-1])
+        self.create_line(
+            *start,
+            *end,
+            fill=theme.WIN_LINE,
+            width=max(3.0, self._step * 0.13),
+            capstyle=tk.ROUND,
+        )
+
+    def _draw_winning_rings(self) -> None:
+        if not self._winning_cells:
+            return
+        radius = max(8.0, min(21.0, self._step * 0.42)) + max(2.5, self._step * 0.08)
+        for row, col in self._winning_cells:
+            x, y = self._cell_center(row, col)
             self.create_oval(
-                x - marker_radius,
-                y - marker_radius,
-                x + marker_radius,
-                y + marker_radius,
-                fill=theme.WARM_ACCENT,
-                outline="",
+                x - radius,
+                y - radius,
+                x + radius,
+                y + radius,
+                outline=theme.WIN_LINE,
+                width=max(2.0, self._step * 0.055),
             )
 
-        self._draw_hover()
-
-    def _update_geometry(self) -> bool:
-        width = self.winfo_width()
-        height = self.winfo_height()
-        side = min(width, height)
-        if side < 180:
-            return False
-
-        board_side = side - 24
-        self._board_left = (width - board_side) / 2
-        self._board_top = (height - board_side) / 2
-        inset = min(48.0, max(34.0, board_side * 0.075))
-        self._grid_left = self._board_left + inset
-        self._grid_top = self._board_top + inset
-        self._grid_size = board_side - inset * 2
-        self._step = self._grid_size / (self._board_size - 1)
-        return True
-
-    def _cell_center(self, row: int, col: int) -> tuple[float, float]:
-        return (
-            self._grid_left + col * self._step,
-            self._grid_top + row * self._step,
-        )
-
-    def _draw_stone(self, row: int, col: int, stone: Stone, radius: float) -> None:
-        x, y = self._cell_center(row, col)
-        shadow_offset = max(1.0, radius * 0.09)
-        self.create_oval(
-            x - radius + shadow_offset,
-            y - radius + shadow_offset,
-            x + radius + shadow_offset,
-            y + radius + shadow_offset,
-            fill="#70502F",
-            outline="",
-        )
-        if stone is Stone.BLACK:
-            fill = theme.BLACK_STONE
-            outline = "#101213"
-        else:
-            fill = theme.WHITE_STONE
-            outline = theme.WHITE_OUTLINE
+    def _draw_last_move(self) -> None:
+        if self._last_move is None:
+            return
+        x, y = self._cell_center(self._last_move.row, self._last_move.col)
+        radius = max(2.6, min(4.8, self._step * 0.11))
         self.create_oval(
             x - radius,
             y - radius,
             x + radius,
             y + radius,
-            fill=fill,
+            fill=theme.WARM_ACCENT,
+            outline="",
+        )
+
+    def _draw_stone(self, row: int, col: int, stone: Stone, radius: float) -> None:
+        x, y = self._cell_center(row, col)
+        shadow_offset = max(1.2, radius * 0.1)
+        self.create_oval(
+            x - radius + shadow_offset,
+            y - radius + shadow_offset,
+            x + radius + shadow_offset,
+            y + radius + shadow_offset,
+            fill="#6A4526",
+            outline="",
+        )
+
+        if stone is Stone.BLACK:
+            base = theme.BLACK_STONE
+            inner = "#293234"
+            outline = "#090C0D"
+            highlight = theme.BLACK_STONE_LIGHT
+        else:
+            base = theme.WHITE_STONE
+            inner = theme.WHITE_STONE_LIGHT
+            outline = theme.WHITE_OUTLINE
+            highlight = "#FFFFFF"
+
+        self.create_oval(
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
+            fill=base,
             outline=outline,
             width=1,
+        )
+        inner_radius = radius * 0.76
+        self.create_oval(
+            x - inner_radius - radius * 0.06,
+            y - inner_radius - radius * 0.06,
+            x + inner_radius - radius * 0.06,
+            y + inner_radius - radius * 0.06,
+            fill=inner,
+            outline="",
+        )
+        gloss_width = radius * 0.46
+        gloss_height = radius * 0.28
+        self.create_oval(
+            x - radius * 0.52,
+            y - radius * 0.58,
+            x - radius * 0.52 + gloss_width,
+            y - radius * 0.58 + gloss_height,
+            fill=highlight,
+            stipple="gray50",
+            outline="",
         )
 
     def _draw_hover(self) -> None:
@@ -260,7 +382,18 @@ class BoardCanvas(tk.Canvas):
             return
 
         x, y = self._cell_center(row, col)
-        radius = max(7.0, min(18.0, self._step * 0.40))
+        radius = max(7.5, min(20.0, self._step * 0.39))
+        halo_radius = radius + max(3.0, self._step * 0.08)
+        self.create_oval(
+            x - halo_radius,
+            y - halo_radius,
+            x + halo_radius,
+            y + halo_radius,
+            fill=theme.WIN_LINE,
+            stipple="gray12",
+            outline="",
+            tags=("hover",),
+        )
         fill = theme.BLACK_STONE if self._current_stone is Stone.BLACK else theme.WHITE_STONE
         self.create_oval(
             x - radius,
@@ -268,9 +401,50 @@ class BoardCanvas(tk.Canvas):
             x + radius,
             y + radius,
             fill=fill,
-            stipple="gray25",
-            outline=theme.ACCENT,
+            stipple="gray50",
+            outline=theme.HOVER_OUTLINE,
             width=2,
             dash=(4, 3),
             tags=("hover",),
+        )
+
+    def _cell_center(self, row: int, col: int) -> tuple[float, float]:
+        return (
+            self._grid_left + col * self._step,
+            self._grid_top + row * self._step,
+        )
+
+    @staticmethod
+    def _rounded_points(
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        radius: float,
+    ) -> tuple[float, ...]:
+        return (
+            x0 + radius,
+            y0,
+            x1 - radius,
+            y0,
+            x1,
+            y0,
+            x1,
+            y0 + radius,
+            x1,
+            y1 - radius,
+            x1,
+            y1,
+            x1 - radius,
+            y1,
+            x0 + radius,
+            y1,
+            x0,
+            y1,
+            x0,
+            y1 - radius,
+            x0,
+            y0 + radius,
+            x0,
+            y0,
         )

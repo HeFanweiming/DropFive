@@ -33,6 +33,13 @@ def test_detects_five_at_board_edge() -> None:
     board = _board_with_line([(0, 10), (0, 11), (0, 12), (0, 13), (0, 14)])
 
     assert WinChecker.winner_from_last_move(board, 0, 14) is Stone.BLACK
+    assert WinChecker.winning_line_from_last_move(board, 0, 14) == (
+        (0, 10),
+        (0, 11),
+        (0, 12),
+        (0, 13),
+        (0, 14),
+    )
 
 
 def test_detects_long_line() -> None:
@@ -45,6 +52,7 @@ def test_four_stones_do_not_win() -> None:
     board = _board_with_line([(7, 3), (7, 4), (7, 5), (7, 6)])
 
     assert WinChecker.winner_from_last_move(board, 7, 6) is None
+    assert WinChecker.winning_line_from_last_move(board, 7, 6) == ()
 
 
 def test_broken_line_does_not_win() -> None:

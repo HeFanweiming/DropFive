@@ -24,6 +24,7 @@ def test_black_win_stops_the_game() -> None:
 
     assert game.result is GameResult.BLACK_WIN
     assert game.is_over
+    assert game.winning_line == ((7, 3), (7, 4), (7, 5), (7, 6), (7, 7))
 
     with pytest.raises(GameFinishedError):
         game.play(9, 9)
@@ -42,6 +43,7 @@ def test_undo_restores_turn_board_and_ongoing_result() -> None:
     assert undone_move == winning_move
     assert game.result is GameResult.ONGOING
     assert game.current_stone is Stone.BLACK
+    assert game.winning_line == ()
     assert game.board.is_empty(7, 7)
     assert len(game.history) == 8
 

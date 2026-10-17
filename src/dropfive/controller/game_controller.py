@@ -21,6 +21,7 @@ class GameView:
     result: GameResult
     last_move: Move | None
     move_count: int
+    winning_cells: tuple[tuple[int, int], ...]
 
 
 class ActionError(Enum):
@@ -71,4 +72,5 @@ class GameController:
             result=self._engine.result,
             last_move=self._engine.history.last,
             move_count=len(self._engine.history),
+            winning_cells=self._engine.winning_line,
         )

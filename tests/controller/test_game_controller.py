@@ -13,6 +13,7 @@ def test_controller_returns_immutable_view() -> None:
     assert view.current_stone is Stone.WHITE
     assert view.last_move is not None
     assert view.move_count == 1
+    assert view.winning_cells == ()
 
 
 def test_controller_maps_invalid_actions_without_mutation() -> None:
