@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dropfive"
-version = "0.0.0"
+version = "0.1.0"
 description = "Intelligent Gomoku desktop application"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,9 @@ authors = [
   { name = "HeFanweiming" },
 ]
 dependencies = []
+
+[project.gui-scripts]
+dropfive = "dropfive.ui.app:main"
 
 [project.optional-dependencies]
 dev = [
