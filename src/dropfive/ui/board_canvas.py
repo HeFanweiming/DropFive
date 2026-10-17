@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dropfive.model.history import Move
 from dropfive.model.stone import Stone
 from dropfive.ui import theme
+from dropfive.ui.metrics import BoardVisualScale, board_visual_scale
 
 
 class BoardCanvas(tk.Canvas):
@@ -45,6 +46,7 @@ class BoardCanvas(tk.Canvas):
         self._grid_top = 0.0
         self._grid_size = 0.0
         self._step = 0.0
+        self._visual_scale: BoardVisualScale = board_visual_scale(40.0)
 
         self.bind("<Configure>", self._handle_configure)
         self.bind("<Button-1>", self._handle_click)
@@ -141,20 +143,23 @@ class BoardCanvas(tk.Canvas):
         self._board_side = side - 44
         self._board_left = (width - self._board_side) / 2
         self._board_top = (height - self._board_side) / 2
-        inset = min(56.0, max(38.0, self._board_side * 0.078))
+        inset = min(78.0, max(38.0, self._board_side * 0.078))
         self._grid_left = self._board_left + inset
         self._grid_top = self._board_top + inset
         self._grid_size = self._board_side - inset * 2
         self._step = self._grid_size / (self._board_size - 1)
+        self._visual_scale = board_visual_scale(self._step)
         return True
 
     def _draw_board_surface(self) -> None:
+        corner_radius = max(10.0, min(16.0, self._board_side * 0.018))
+        shadow_offset = max(8.0, min(14.0, self._board_side * 0.012))
         shadow_points = self._rounded_points(
             self._board_left + 5,
-            self._board_top + 9,
+            self._board_top + shadow_offset,
             self._board_left + self._board_side + 5,
-            self._board_top + self._board_side + 9,
-            12,
+            self._board_top + self._board_side + shadow_offset,
+            corner_radius,
         )
         self.create_polygon(
             shadow_points,
@@ -169,7 +174,7 @@ class BoardCanvas(tk.Canvas):
             self._board_top,
             self._board_left + self._board_side,
             self._board_top + self._board_side,
-            12,
+            corner_radius,
         )
         self.create_polygon(
             outer_points,
@@ -185,7 +190,7 @@ class BoardCanvas(tk.Canvas):
             self._board_top + inset,
             self._board_left + self._board_side - inset,
             self._board_top + self._board_side - inset,
-            10,
+            max(8.0, corner_radius - 2),
         )
         self.create_polygon(
             inner_points,
@@ -214,7 +219,7 @@ class BoardCanvas(tk.Canvas):
                 smooth=True,
                 splinesteps=24,
                 fill=theme.BOARD_GRAIN,
-                width=1,
+                width=max(1.0, self._visual_scale.grid_line_width * 0.8),
             )
 
     def _draw_grid(self) -> None:
@@ -224,7 +229,8 @@ class BoardCanvas(tk.Canvas):
 
         for index in range(self._board_size):
             position = index * self._step
-            width = 1.4 if index in (0, self._board_size - 1) else 1
+            base_width = self._visual_scale.grid_line_width
+            width = base_width * 1.4 if index in (0, self._board_size - 1) else base_width
             self.create_line(
                 self._grid_left,
                 self._grid_top + position,
@@ -246,14 +252,14 @@ class BoardCanvas(tk.Canvas):
                 self._board_top + inset / 2,
                 text=chr(ord("A") + index),
                 fill=theme.LABEL_COLOR,
-                font=("Segoe UI", 8, "bold"),
+                font=("Segoe UI", self._visual_scale.coordinate_font_size, "bold"),
             )
             self.create_text(
                 self._board_left + inset / 2,
                 self._grid_top + position,
                 text=str(index + 1),
                 fill=theme.LABEL_COLOR,
-                font=("Segoe UI", 8),
+                font=("Segoe UI", self._visual_scale.coordinate_font_size),
             )
 
         if self._board_size == 15:
@@ -270,7 +276,7 @@ class BoardCanvas(tk.Canvas):
                 )
 
     def _draw_stones(self) -> None:
-        radius = max(8.0, min(21.0, self._step * 0.42))
+        radius = self._visual_scale.stone_radius
         for row in range(self._board_size):
             for col in range(self._board_size):
                 stone = self._board[row][col]
@@ -286,14 +292,14 @@ class BoardCanvas(tk.Canvas):
             *start,
             *end,
             fill=theme.WIN_LINE,
-            width=max(3.0, self._step * 0.13),
+            width=self._visual_scale.winning_line_width,
             capstyle=tk.ROUND,
         )
 
     def _draw_winning_rings(self) -> None:
         if not self._winning_cells:
             return
-        radius = max(8.0, min(21.0, self._step * 0.42)) + max(2.5, self._step * 0.08)
+        radius = self._visual_scale.stone_radius + max(2.5, self._step * 0.08)
         for row, col in self._winning_cells:
             x, y = self._cell_center(row, col)
             self.create_oval(
@@ -302,14 +308,14 @@ class BoardCanvas(tk.Canvas):
                 x + radius,
                 y + radius,
                 outline=theme.WIN_LINE,
-                width=max(2.0, self._step * 0.055),
+                width=self._visual_scale.ring_width,
             )
 
     def _draw_last_move(self) -> None:
         if self._last_move is None:
             return
         x, y = self._cell_center(self._last_move.row, self._last_move.col)
-        radius = max(2.6, min(4.8, self._step * 0.11))
+        radius = self._visual_scale.last_move_radius
         self.create_oval(
             x - radius,
             y - radius,
@@ -382,7 +388,7 @@ class BoardCanvas(tk.Canvas):
             return
 
         x, y = self._cell_center(row, col)
-        radius = max(7.5, min(20.0, self._step * 0.39))
+        radius = self._visual_scale.stone_radius * 0.92
         halo_radius = radius + max(3.0, self._step * 0.08)
         self.create_oval(
             x - halo_radius,

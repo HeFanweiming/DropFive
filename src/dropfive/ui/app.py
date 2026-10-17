@@ -19,6 +19,9 @@ from dropfive.ui.board_canvas import BoardCanvas
 from dropfive.ui.widgets import ActionButton
 
 _BOARD_SIZE = 15
+_BOARD_GAP = 22
+_MIN_BOARD_SIZE = 420
+_SIDEBAR_WIDTH = 288
 
 _STONE_LABELS = {
     Stone.BLACK: "黑方",
@@ -50,6 +53,7 @@ class DropFiveWindow:
         self.root = root
         self.controller = controller or GameController(_BOARD_SIZE)
         self._message_after: str | None = None
+        self._last_board_side = 0
 
         self.root.title("落五 DropFive")
         self.root.geometry("1160x820")
@@ -73,35 +77,44 @@ class DropFiveWindow:
             pady=24,
         )
         content.grid(row=0, column=0, sticky="nsew")
-        content.columnconfigure(0, weight=1, minsize=560)
-        content.columnconfigure(1, minsize=288)
+        content.columnconfigure(0, weight=1)
         content.rowconfigure(1, weight=1)
 
         self._build_header(content)
 
+        body = tk.Frame(content, background=theme.APP_BG)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=0)
+        body.columnconfigure(2, weight=0)
+        body.columnconfigure(3, weight=1)
+        body.rowconfigure(0, weight=1)
+
         self.board_canvas = BoardCanvas(
-            content,
+            body,
             board_size=_BOARD_SIZE,
             on_move=self._handle_move,
         )
+        self.board_canvas.configure(width=680, height=680)
         self.board_canvas.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            padx=(0, 22),
+            row=0,
+            column=1,
+            sticky="ns",
+            padx=(0, _BOARD_GAP),
         )
 
         self.sidebar = tk.Frame(
-            content,
+            body,
             background=theme.SURFACE,
             highlightbackground=theme.BORDER,
             highlightthickness=1,
             padx=24,
             pady=24,
         )
-        self.sidebar.grid(row=1, column=1, sticky="nsew")
+        self.sidebar.grid(row=0, column=2, sticky="ns")
         self.sidebar.columnconfigure(0, weight=1)
         self.sidebar.rowconfigure(7, weight=1)
+        body.bind("<Configure>", self._handle_body_resize)
 
         tk.Label(
             self.sidebar,
@@ -250,7 +263,7 @@ class DropFiveWindow:
 
     def _build_header(self, parent: tk.Misc) -> None:
         header = tk.Frame(parent, background=theme.APP_BG)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         header.columnconfigure(2, weight=1)
 
         tk.Label(
@@ -284,6 +297,14 @@ class DropFiveWindow:
             foreground=theme.HEADER_MUTED,
             font=("Segoe UI", 9),
         ).grid(row=0, column=4, sticky="e")
+
+    def _handle_body_resize(self, event: tk.Event) -> None:
+        available_width = event.width - _SIDEBAR_WIDTH - _BOARD_GAP
+        side = max(_MIN_BOARD_SIZE, min(event.height, available_width))
+        if side == self._last_board_side:
+            return
+        self._last_board_side = side
+        self.board_canvas.configure(width=side, height=side)
 
     def _handle_move(self, row: int, col: int) -> None:
         result = self.controller.play(row, col)
