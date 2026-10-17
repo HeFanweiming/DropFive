@@ -20,21 +20,21 @@ class DifficultyConfig:
 
 _CONFIGS = {
     Difficulty.EASY: DifficultyConfig(
-        depth=1,
-        candidate_limit=6,
-        time_limit=0.18,
-        randomness=0.45,
+        depth=2,
+        candidate_limit=8,
+        time_limit=0.35,
+        randomness=0.25,
     ),
     Difficulty.MEDIUM: DifficultyConfig(
-        depth=2,
-        candidate_limit=10,
-        time_limit=0.45,
+        depth=3,
+        candidate_limit=12,
+        time_limit=0.7,
         randomness=0.0,
     ),
     Difficulty.HARD: DifficultyConfig(
-        depth=4,
-        candidate_limit=12,
-        time_limit=0.9,
+        depth=5,
+        candidate_limit=11,
+        time_limit=1.4,
         randomness=0.0,
     ),
 }

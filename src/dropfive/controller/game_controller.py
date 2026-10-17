@@ -72,7 +72,7 @@ class GameController:
         board_size: int = 15,
         *,
         mode: GameMode = GameMode.TWO_PLAYER,
-        difficulty: Difficulty = Difficulty.MEDIUM,
+        difficulty: Difficulty = Difficulty.HARD,
     ) -> None:
         self._engine = GameEngine(board_size)
         self._mode = mode

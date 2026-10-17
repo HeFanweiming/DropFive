@@ -37,6 +37,31 @@ def test_empty_board_starts_at_center() -> None:
     assert result.move == (7, 7)
 
 
+def test_ai_builds_an_open_four_double_threat() -> None:
+    board = Board()
+    board.place(7, 5, Stone.WHITE)
+    board.place(7, 6, Stone.WHITE)
+    board.place(7, 8, Stone.WHITE)
+    board.place(0, 0, Stone.BLACK)
+
+    result = GomokuAI(Difficulty.HARD).choose_move(board.snapshot(), Stone.WHITE)
+
+    assert result.move == (7, 7)
+    assert result.reason == "forced_win"
+
+
+def test_medium_ai_blocks_an_open_three() -> None:
+    board = Board()
+    board.place(7, 6, Stone.BLACK)
+    board.place(7, 7, Stone.BLACK)
+    board.place(7, 8, Stone.BLACK)
+    board.place(6, 6, Stone.WHITE)
+
+    result = GomokuAI(Difficulty.MEDIUM).choose_move(board.snapshot(), Stone.WHITE)
+
+    assert result.move in {(7, 5), (7, 9)}
+
+
 def test_search_returns_a_legal_move_and_preserves_snapshot() -> None:
     board = Board()
     board.place(7, 7, Stone.BLACK)
