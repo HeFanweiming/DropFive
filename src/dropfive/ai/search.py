@@ -86,7 +86,12 @@ class AlphaBetaSearch:
         vcf_deadline = _Deadline(min(0.3, self._config.time_limit * 0.25))
         forced_win: tuple[int, int] | None = None
         with contextlib.suppress(_SearchTimeout):
-            forced_win = self._find_forced_win(board, stone, self._config.depth, vcf_deadline)
+            forced_win = self._find_forced_win(
+                board,
+                stone,
+                self._config.vcf_depth,
+                vcf_deadline,
+            )
         if forced_win is not None:
             return SearchResult(
                 move=forced_win,
@@ -96,6 +101,26 @@ class AlphaBetaSearch:
                 elapsed=time.perf_counter() - started,
                 reason="forced_win",
             )
+
+        if self._config.defensive_vcf:
+            defense_deadline = _Deadline(min(0.5, self._config.time_limit * 0.2))
+            opponent_force: tuple[int, int] | None = None
+            with contextlib.suppress(_SearchTimeout):
+                opponent_force = self._find_forced_win(
+                    board,
+                    stone.opponent,
+                    self._config.vcf_depth,
+                    defense_deadline,
+                )
+            if opponent_force is not None:
+                return SearchResult(
+                    move=opponent_force,
+                    score=0,
+                    depth=0,
+                    nodes=self._nodes,
+                    elapsed=time.perf_counter() - started,
+                    reason="block_forced_win",
+                )
 
         candidates = self._generator.generate(board, stone)
         if not candidates:

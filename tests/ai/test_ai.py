@@ -77,15 +77,25 @@ def test_search_returns_a_legal_move_and_preserves_snapshot() -> None:
     assert result.nodes >= 1
 
 
-def test_hard_search_stays_within_its_time_budget() -> None:
+def test_configured_search_stays_within_its_time_budget() -> None:
     board = Board()
     board.place(7, 7, Stone.BLACK)
     board.place(8, 8, Stone.WHITE)
     board.place(6, 6, Stone.BLACK)
 
     started = time.perf_counter()
-    result = GomokuAI(Difficulty.HARD).choose_move(board.snapshot(), Stone.WHITE)
+    result = GomokuAI(Difficulty.MEDIUM).choose_move(board.snapshot(), Stone.WHITE)
     elapsed = time.perf_counter() - started
 
     assert result.move is not None
-    assert elapsed < get_difficulty_config(Difficulty.HARD).time_limit + 0.5
+    assert elapsed < get_difficulty_config(Difficulty.MEDIUM).time_limit + 0.5
+
+
+def test_difficulty_levels_have_increasing_search_budgets() -> None:
+    easy = get_difficulty_config(Difficulty.EASY)
+    normal = get_difficulty_config(Difficulty.MEDIUM)
+    hard = get_difficulty_config(Difficulty.HARD)
+    master = get_difficulty_config(Difficulty.MASTER)
+
+    assert easy.depth < normal.depth < hard.depth < master.depth
+    assert normal.time_limit < hard.time_limit < master.time_limit

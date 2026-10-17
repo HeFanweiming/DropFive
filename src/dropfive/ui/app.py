@@ -31,7 +31,7 @@ from dropfive.ui.widgets import ActionButton, SegmentedControl
 _BOARD_SIZE = 15
 _BOARD_GAP = 22
 _MIN_BOARD_SIZE = 420
-_SIDEBAR_WIDTH = 288
+_SIDEBAR_WIDTH = 296
 
 _STONE_LABELS = {
     Stone.BLACK: "黑方",
@@ -47,6 +47,7 @@ _DIFFICULTY_LABELS = {
     Difficulty.EASY: "简单",
     Difficulty.MEDIUM: "普通",
     Difficulty.HARD: "困难",
+    Difficulty.MASTER: "大师",
 }
 
 _MODE_OPTIONS = [
@@ -58,6 +59,7 @@ _DIFFICULTY_OPTIONS = [
     (Difficulty.EASY.value, "简单"),
     (Difficulty.MEDIUM.value, "普通"),
     (Difficulty.HARD.value, "困难"),
+    (Difficulty.MASTER.value, "大师"),
 ]
 
 _ERROR_MESSAGES = {
@@ -109,8 +111,8 @@ class DropFiveWindow:
         self._closed = False
 
         self.root.title("落五 DropFive")
-        self.root.geometry("1160x820")
-        self.root.minsize(980, 720)
+        self.root.geometry("1180x820")
+        self.root.minsize(1000, 740)
         self.root.configure(background=theme.APP_BG)
 
         self._build_layout()
@@ -203,6 +205,8 @@ class DropFiveWindow:
             font=("Microsoft YaHei UI", 9),
             padx=13,
             pady=7,
+            highlightbackground=theme.BORDER,
+            highlightthickness=1,
         )
         self.mode_chip.grid(row=0, column=3, sticky="e", padx=(0, 12))
         tk.Label(
@@ -218,7 +222,6 @@ class DropFiveWindow:
 
         controls = tk.Frame(self.sidebar, background=theme.SURFACE)
         controls.grid(row=0, column=0, sticky="ew")
-        controls.columnconfigure(0, weight=1)
         controls.columnconfigure(1, weight=1)
 
         tk.Label(
@@ -228,15 +231,7 @@ class DropFiveWindow:
             foreground=theme.MUTED,
             font=("Microsoft YaHei UI", 9),
             anchor="w",
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            controls,
-            text="难度",
-            background=theme.SURFACE,
-            foreground=theme.MUTED,
-            font=("Microsoft YaHei UI", 9),
-            anchor="w",
-        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=(0, 6))
 
         self.mode_control = SegmentedControl(
             controls,
@@ -244,9 +239,18 @@ class DropFiveWindow:
             selected=view.mode.value,
             command=self._handle_mode_change,
             background=theme.SURFACE,
-            width=108,
+            width=190,
         )
-        self.mode_control.grid(row=1, column=0, sticky="ew", pady=(5, 10))
+        self.mode_control.grid(row=0, column=1, sticky="ew", pady=(0, 6))
+
+        tk.Label(
+            controls,
+            text="难度",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=(0, 4))
 
         self.difficulty_control = SegmentedControl(
             controls,
@@ -254,15 +258,9 @@ class DropFiveWindow:
             selected=view.difficulty.value,
             command=self._handle_difficulty_change,
             background=theme.SURFACE,
-            width=120,
+            width=220,
         )
-        self.difficulty_control.grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(10, 0),
-            pady=(5, 10),
-        )
+        self.difficulty_control.grid(row=1, column=1, sticky="ew", pady=(0, 4))
 
         tk.Frame(
             self.sidebar,
