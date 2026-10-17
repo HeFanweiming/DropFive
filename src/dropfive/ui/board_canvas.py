@@ -35,6 +35,7 @@ class BoardCanvas(tk.Canvas):
         self._current_stone = Stone.BLACK
         self._last_move: Move | None = None
         self._winning_cells: tuple[tuple[int, int], ...] = ()
+        self._hint_cell: tuple[int, int] | None = None
         self._interactive = False
         self._hover: tuple[int, int] | None = None
         self._last_dimensions = (0, 0)
@@ -61,11 +62,13 @@ class BoardCanvas(tk.Canvas):
         *,
         interactive: bool,
         winning_cells: tuple[tuple[int, int], ...] = (),
+        hint_cell: tuple[int, int] | None = None,
     ) -> None:
         self._board = board
         self._last_move = last_move
         self._current_stone = current_stone
         self._winning_cells = winning_cells
+        self._hint_cell = hint_cell
         self._interactive = interactive
         self.configure(cursor="hand2" if interactive else "arrow")
         if not interactive:
@@ -131,6 +134,7 @@ class BoardCanvas(tk.Canvas):
         self._draw_stones()
         self._draw_winning_rings()
         self._draw_last_move()
+        self._draw_hint()
         self._draw_hover()
 
     def _update_geometry(self) -> bool:
@@ -323,6 +327,38 @@ class BoardCanvas(tk.Canvas):
             y + radius,
             fill=theme.WARM_ACCENT,
             outline="",
+        )
+
+    def _draw_hint(self) -> None:
+        if self._hint_cell is None:
+            return
+        row, col = self._hint_cell
+        if not (
+            0 <= row < self._board_size
+            and 0 <= col < self._board_size
+            and self._board[row][col] is Stone.EMPTY
+        ):
+            return
+
+        x, y = self._cell_center(row, col)
+        radius = self._visual_scale.stone_radius * 0.82
+        self.create_oval(
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
+            fill=theme.WIN_LINE,
+            stipple="gray12",
+            outline="",
+        )
+        self.create_oval(
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
+            outline=theme.WARM_ACCENT,
+            width=max(2.0, self._visual_scale.ring_width),
+            dash=(5, 3),
         )
 
     def _draw_stone(self, row: int, col: int, stone: Stone, radius: float) -> None:

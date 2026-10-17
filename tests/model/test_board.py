@@ -34,6 +34,17 @@ def test_place_and_remove_stone() -> None:
     assert board.stone_count == 0
 
 
+def test_board_can_be_restored_from_snapshot() -> None:
+    original = Board(3)
+    original.place(0, 0, Stone.BLACK)
+    original.place(1, 1, Stone.WHITE)
+
+    restored = Board.from_snapshot(original.snapshot())
+
+    assert restored.snapshot() == original.snapshot()
+    assert restored.stone_count == 2
+
+
 def test_rejects_out_of_bounds_position() -> None:
     board = Board()
 

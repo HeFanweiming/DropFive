@@ -4,7 +4,18 @@ from dropfive.controller.game_controller import (
     ActionError,
     ActionResult,
     GameController,
+    GameMode,
     GameView,
+    SearchPurpose,
+    SearchRequest,
 )
 
-__all__ = ["ActionError", "ActionResult", "GameController", "GameView"]
+__all__ = [
+    "ActionError",
+    "ActionResult",
+    "GameController",
+    "GameMode",
+    "GameView",
+    "SearchPurpose",
+    "SearchRequest",
+]

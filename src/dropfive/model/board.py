@@ -21,6 +21,19 @@ class Board:
         self._cells: list[list[Stone]] = [[Stone.EMPTY for _ in range(size)] for _ in range(size)]
         self._stone_count = 0
 
+    @classmethod
+    def from_snapshot(cls, snapshot: tuple[tuple[Stone, ...], ...]) -> "Board":
+        size = len(snapshot)
+        if size < 1 or any(len(row) != size for row in snapshot):
+            raise ValueError("Board snapshot must be a non-empty square")
+
+        board = cls(size)
+        for row_index, row in enumerate(snapshot):
+            for col_index, stone in enumerate(row):
+                if stone is not Stone.EMPTY:
+                    board.place(row_index, col_index, stone)
+        return board
+
     @property
     def size(self) -> int:
         return self._size

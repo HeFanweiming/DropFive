@@ -1,22 +1,32 @@
 """Main tkinter application window."""
 
 import ctypes
+import queue
 import sys
+import threading
 import tkinter as tk
+from dataclasses import dataclass
+from tkinter import messagebox
 
 from dropfive import __version__
+from dropfive.ai.difficulty import Difficulty
+from dropfive.ai.search import SearchResult
+from dropfive.ai.strategy import GomokuAI
 from dropfive.controller.game_controller import (
     ActionError,
     ActionResult,
     GameController,
+    GameMode,
     GameView,
+    SearchPurpose,
+    SearchRequest,
 )
 from dropfive.model.game import GameResult
 from dropfive.model.history import Move
 from dropfive.model.stone import Stone
 from dropfive.ui import theme
 from dropfive.ui.board_canvas import BoardCanvas
-from dropfive.ui.widgets import ActionButton
+from dropfive.ui.widgets import ActionButton, SegmentedControl
 
 _BOARD_SIZE = 15
 _BOARD_GAP = 22
@@ -28,18 +38,54 @@ _STONE_LABELS = {
     Stone.WHITE: "白方",
 }
 
+_MODE_LABELS = {
+    GameMode.TWO_PLAYER: "双人对战",
+    GameMode.HUMAN_VS_AI: "人机对战",
+}
+
+_DIFFICULTY_LABELS = {
+    Difficulty.EASY: "简单",
+    Difficulty.MEDIUM: "普通",
+    Difficulty.HARD: "困难",
+}
+
+_MODE_OPTIONS = [
+    (GameMode.TWO_PLAYER.value, "双人"),
+    (GameMode.HUMAN_VS_AI.value, "人机"),
+]
+
+_DIFFICULTY_OPTIONS = [
+    (Difficulty.EASY.value, "简单"),
+    (Difficulty.MEDIUM.value, "普通"),
+    (Difficulty.HARD.value, "困难"),
+]
+
 _ERROR_MESSAGES = {
     ActionError.OUT_OF_BOUNDS: "该位置不在棋盘内。",
     ActionError.OCCUPIED: "该位置已有棋子。",
     ActionError.GAME_OVER: "本局已经结束。",
     ActionError.NO_UNDO: "当前没有可悔的棋。",
+    ActionError.NOT_YOUR_TURN: "请等待当前回合结束。",
+    ActionError.STALE_REQUEST: "上一项计算已经失效。",
 }
 
 
 def _position_label(move: Move | None) -> str:
     if move is None:
         return "—"
-    return f"{chr(ord('A') + move.col)}{move.row + 1}"
+    return _cell_label(move.row, move.col)
+
+
+def _cell_label(row: int, col: int) -> str:
+    return f"{chr(ord('A') + col)}{row + 1}"
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchCompletion:
+    token: int
+    request: SearchRequest
+    result: SearchResult | None
+    error: str | None
 
 
 class DropFiveWindow:
@@ -55,6 +101,13 @@ class DropFiveWindow:
         self._message_after: str | None = None
         self._last_board_side = 0
 
+        self._active_search: SearchRequest | None = None
+        self._search_token = 0
+        self._search_queue: queue.Queue[_SearchCompletion] = queue.Queue()
+        self._poll_after: str | None = None
+        self._hint_cell: tuple[int, int] | None = None
+        self._closed = False
+
         self.root.title("落五 DropFive")
         self.root.geometry("1160x820")
         self.root.minsize(980, 720)
@@ -63,8 +116,12 @@ class DropFiveWindow:
         self._build_layout()
         self.root.bind("<Control-z>", self._undo_from_keyboard)
         self.root.bind("<Control-n>", self._restart_from_keyboard)
+        self.root.bind("<Control-h>", self._hint_from_keyboard)
+        self.root.bind("<F11>", self._toggle_fullscreen)
+        self.root.bind("<Escape>", self._exit_fullscreen)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
+        self._poll_after = self.root.after(50, self._poll_search_results)
 
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -113,19 +170,108 @@ class DropFiveWindow:
         )
         self.sidebar.grid(row=0, column=2, sticky="ns")
         self.sidebar.columnconfigure(0, weight=1)
-        self.sidebar.rowconfigure(7, weight=1)
+        self.sidebar.rowconfigure(9, weight=1)
         body.bind("<Configure>", self._handle_body_resize)
 
+        self._build_sidebar()
+
+    def _build_header(self, parent: tk.Misc) -> None:
+        header = tk.Frame(parent, background=theme.APP_BG)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
+        header.columnconfigure(2, weight=1)
+
         tk.Label(
-            self.sidebar,
-            text="当前对局",
+            header,
+            text="落五",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_TEXT,
+            font=("Microsoft YaHei UI", 30, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            header,
+            text="●  GOMOKU",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_MUTED,
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=0, column=1, sticky="w", padx=(14, 0), pady=(17, 0))
+
+        self.mode_chip = tk.Label(
+            header,
+            text=_MODE_LABELS[self.controller.view().mode],
+            background=theme.HEADER_CHIP,
+            foreground=theme.HEADER_CHIP_TEXT,
+            font=("Microsoft YaHei UI", 9),
+            padx=13,
+            pady=7,
+        )
+        self.mode_chip.grid(row=0, column=3, sticky="e", padx=(0, 12))
+        tk.Label(
+            header,
+            text=f"v{__version__}",
+            background=theme.APP_BG,
+            foreground=theme.HEADER_MUTED,
+            font=("Segoe UI", 9),
+        ).grid(row=0, column=4, sticky="e")
+
+    def _build_sidebar(self) -> None:
+        view = self.controller.view()
+
+        controls = tk.Frame(self.sidebar, background=theme.SURFACE)
+        controls.grid(row=0, column=0, sticky="ew")
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
+
+        tk.Label(
+            controls,
+            text="模式",
             background=theme.SURFACE,
             foreground=theme.MUTED,
             font=("Microsoft YaHei UI", 9),
+            anchor="w",
         ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            controls,
+            text="难度",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=0, column=1, sticky="w", padx=(10, 0))
+
+        self.mode_control = SegmentedControl(
+            controls,
+            options=_MODE_OPTIONS,
+            selected=view.mode.value,
+            command=self._handle_mode_change,
+            background=theme.SURFACE,
+            width=108,
+        )
+        self.mode_control.grid(row=1, column=0, sticky="ew", pady=(5, 10))
+
+        self.difficulty_control = SegmentedControl(
+            controls,
+            options=_DIFFICULTY_OPTIONS,
+            selected=view.difficulty.value,
+            command=self._handle_difficulty_change,
+            background=theme.SURFACE,
+            width=120,
+        )
+        self.difficulty_control.grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(10, 0),
+            pady=(5, 10),
+        )
+
+        tk.Frame(
+            self.sidebar,
+            background=theme.BORDER,
+            height=1,
+        ).grid(row=1, column=0, sticky="ew", pady=10)
 
         status_frame = tk.Frame(self.sidebar, background=theme.SURFACE)
-        status_frame.grid(row=1, column=0, sticky="ew", pady=(18, 16))
+        status_frame.grid(row=2, column=0, sticky="ew")
         status_frame.columnconfigure(1, weight=1)
 
         self.turn_badge = tk.Canvas(
@@ -159,7 +305,7 @@ class DropFiveWindow:
         self.status_note.grid(row=1, column=1, sticky="ew", pady=(2, 0))
 
         stats_frame = tk.Frame(self.sidebar, background=theme.SURFACE)
-        stats_frame.grid(row=2, column=0, sticky="ew")
+        stats_frame.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         stats_frame.columnconfigure(0, weight=1)
         stats_frame.columnconfigure(1, weight=1)
 
@@ -188,7 +334,7 @@ class DropFiveWindow:
             font=("Segoe UI", 15, "bold"),
             anchor="w",
         )
-        self.move_count_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.move_count_label.grid(row=1, column=0, sticky="w", pady=(3, 0))
 
         self.last_move_label = tk.Label(
             stats_frame,
@@ -198,13 +344,13 @@ class DropFiveWindow:
             font=("Segoe UI", 15, "bold"),
             anchor="w",
         )
-        self.last_move_label.grid(row=1, column=1, sticky="w", padx=(18, 0), pady=(4, 0))
+        self.last_move_label.grid(row=1, column=1, sticky="w", padx=(18, 0), pady=(3, 0))
 
         tk.Frame(
             self.sidebar,
             background=theme.BORDER,
             height=1,
-        ).grid(row=3, column=0, sticky="ew", pady=22)
+        ).grid(row=4, column=0, sticky="ew", pady=10)
 
         self.new_button = ActionButton(
             self.sidebar,
@@ -212,18 +358,38 @@ class DropFiveWindow:
             icon="↻",
             command=self._restart,
             background=theme.SURFACE,
+            height=44,
         )
-        self.new_button.grid(row=4, column=0, sticky="ew")
+        self.new_button.grid(row=5, column=0, sticky="ew")
+
+        action_row = tk.Frame(self.sidebar, background=theme.SURFACE)
+        action_row.grid(row=6, column=0, sticky="ew", pady=(8, 0))
+        action_row.columnconfigure(0, weight=1)
+        action_row.columnconfigure(1, weight=1)
 
         self.undo_button = ActionButton(
-            self.sidebar,
+            action_row,
             text="悔棋",
             icon="↶",
             command=self._undo,
             background=theme.SURFACE,
             variant="secondary",
+            width=110,
+            height=44,
         )
-        self.undo_button.grid(row=5, column=0, sticky="ew", pady=(10, 0))
+        self.undo_button.grid(row=0, column=0, sticky="ew")
+
+        self.hint_button = ActionButton(
+            action_row,
+            text="提示落子",
+            icon="✦",
+            command=self._request_hint,
+            background=theme.SURFACE,
+            variant="secondary",
+            width=110,
+            height=44,
+        )
+        self.hint_button.grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
         self.message_label = tk.Label(
             self.sidebar,
@@ -234,12 +400,12 @@ class DropFiveWindow:
             anchor="w",
             justify="left",
             wraplength=218,
-            height=2,
+            height=1,
         )
-        self.message_label.grid(row=6, column=0, sticky="ew", pady=(14, 0))
+        self.message_label.grid(row=7, column=0, sticky="ew", pady=(8, 0))
 
         footer = tk.Frame(self.sidebar, background=theme.SURFACE)
-        footer.grid(row=8, column=0, sticky="ew")
+        footer.grid(row=10, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
 
         tk.Label(
@@ -261,43 +427,6 @@ class DropFiveWindow:
             pady=4,
         ).grid(row=0, column=1, sticky="e")
 
-    def _build_header(self, parent: tk.Misc) -> None:
-        header = tk.Frame(parent, background=theme.APP_BG)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
-        header.columnconfigure(2, weight=1)
-
-        tk.Label(
-            header,
-            text="落五",
-            background=theme.APP_BG,
-            foreground=theme.HEADER_TEXT,
-            font=("Microsoft YaHei UI", 30, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(
-            header,
-            text="●  GOMOKU",
-            background=theme.APP_BG,
-            foreground=theme.HEADER_MUTED,
-            font=("Segoe UI", 9, "bold"),
-        ).grid(row=0, column=1, sticky="w", padx=(14, 0), pady=(17, 0))
-
-        tk.Label(
-            header,
-            text="双人对战",
-            background=theme.HEADER_CHIP,
-            foreground=theme.HEADER_CHIP_TEXT,
-            font=("Microsoft YaHei UI", 9),
-            padx=13,
-            pady=7,
-        ).grid(row=0, column=3, sticky="e", padx=(0, 12))
-        tk.Label(
-            header,
-            text=f"v{__version__}",
-            background=theme.APP_BG,
-            foreground=theme.HEADER_MUTED,
-            font=("Segoe UI", 9),
-        ).grid(row=0, column=4, sticky="e")
-
     def _handle_body_resize(self, event: tk.Event) -> None:
         available_width = event.width - _SIDEBAR_WIDTH - _BOARD_GAP
         side = max(_MIN_BOARD_SIZE, min(event.height, available_width))
@@ -307,19 +436,152 @@ class DropFiveWindow:
         self.board_canvas.configure(width=side, height=side)
 
     def _handle_move(self, row: int, col: int) -> None:
+        if self._active_search is not None:
+            return
+        self._hint_cell = None
         result = self.controller.play(row, col)
         self._handle_action_result(result)
         self._refresh()
+        if result.ok and self.controller.view().is_ai_turn:
+            self._begin_search(SearchPurpose.AI_MOVE)
 
     def _undo(self) -> None:
+        if self._active_search is not None:
+            self._show_message("请等待当前计算结束。")
+            return
+        self._hint_cell = None
         result = self.controller.undo()
         self._handle_action_result(result)
         self._refresh()
 
     def _restart(self) -> None:
+        self._cancel_search()
+        self._hint_cell = None
         result = self.controller.restart()
         self._handle_action_result(result)
         self._refresh()
+
+    def _request_hint(self) -> None:
+        if self._active_search is not None:
+            return
+        self._hint_cell = None
+        self._begin_search(SearchPurpose.HINT)
+
+    def _handle_mode_change(self, value: str) -> None:
+        mode = GameMode(value)
+        current = self.controller.view()
+        if mode is current.mode:
+            return
+        if current.move_count > 0 and not messagebox.askyesno(
+            "切换模式",
+            "切换模式将开始新对局，是否继续？",
+            parent=self.root,
+        ):
+            self.mode_control.set_selected(current.mode.value)
+            return
+
+        self._cancel_search()
+        self._hint_cell = None
+        self.controller.set_mode(mode)
+        self._clear_message()
+        self._refresh()
+
+    def _handle_difficulty_change(self, value: str) -> None:
+        self._cancel_search()
+        self._hint_cell = None
+        self.controller.set_difficulty(Difficulty(value))
+        self._clear_message()
+        self._refresh()
+
+    def _begin_search(self, purpose: SearchPurpose) -> None:
+        request = self.controller.make_search_request(purpose)
+        if request is None or self._active_search is not None:
+            return
+
+        self._search_token += 1
+        self._active_search = request
+        self._refresh()
+        self.root.after(30, self._launch_search, self._search_token, request)
+
+    def _launch_search(self, token: int, request: SearchRequest) -> None:
+        if token != self._search_token or self._closed:
+            return
+        worker = threading.Thread(
+            target=self._run_search,
+            args=(token, request),
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_search(self, token: int, request: SearchRequest) -> None:
+        try:
+            result = GomokuAI(request.difficulty).choose_move(request.board, request.stone)
+        except Exception as exc:  # The worker boundary must report failures to the UI.
+            completion = _SearchCompletion(
+                token=token,
+                request=request,
+                result=None,
+                error=str(exc),
+            )
+        else:
+            completion = _SearchCompletion(
+                token=token,
+                request=request,
+                result=result,
+                error=None,
+            )
+        self._search_queue.put(completion)
+
+    def _poll_search_results(self) -> None:
+        self._poll_after = None
+        if self._closed:
+            return
+
+        while True:
+            try:
+                completion = self._search_queue.get_nowait()
+            except queue.Empty:
+                break
+            if (
+                completion.token != self._search_token
+                or self._active_search is None
+                or completion.request.purpose is not self._active_search.purpose
+                or completion.request.game_id != self._active_search.game_id
+            ):
+                continue
+            self._active_search = None
+            self._handle_search_completion(completion)
+            self._refresh()
+
+        self._poll_after = self.root.after(50, self._poll_search_results)
+
+    def _handle_search_completion(self, completion: _SearchCompletion) -> None:
+        request = completion.request
+        result = completion.result
+        if completion.error is not None or result is None or result.move is None:
+            if request.purpose is SearchPurpose.AI_MOVE:
+                fallback = self.controller.apply_ai_fallback(request.game_id)
+                message = "AI 搜索异常，已使用备用落点。" if fallback.ok else "AI 无法完成本回合。"
+                self._show_message(message)
+            else:
+                self._show_message("暂时无法生成提示。")
+            return
+
+        row, col = result.move
+        if request.purpose is SearchPurpose.AI_MOVE:
+            action = self.controller.play_ai_move(row, col, request.game_id)
+            if not action.ok and action.error is not ActionError.STALE_REQUEST:
+                fallback = self.controller.apply_ai_fallback(request.game_id)
+                if not fallback.ok:
+                    self._show_message("AI 无法完成本回合。")
+            return
+
+        self._hint_cell = (row, col)
+        self._show_message(f"推荐落点 {_cell_label(row, col)}")
+
+    def _cancel_search(self) -> None:
+        self._search_token += 1
+        self._active_search = None
 
     def _handle_action_result(self, result: ActionResult) -> None:
         if result.ok:
@@ -334,13 +596,22 @@ class DropFiveWindow:
             view.board,
             view.last_move,
             view.current_stone,
-            interactive=not view.result.is_finished,
+            interactive=view.can_human_play and self._active_search is None,
             winning_cells=view.winning_cells,
+            hint_cell=self._hint_cell,
         )
         self._update_sidebar(view)
 
     def _update_sidebar(self, view: GameView) -> None:
-        if view.result is GameResult.BLACK_WIN:
+        busy = self._active_search is not None
+        purpose = self._active_search.purpose if self._active_search else None
+        self.mode_chip.configure(text=_MODE_LABELS[view.mode])
+
+        if purpose is SearchPurpose.AI_MOVE:
+            status = "AI 思考中"
+            note = f"{_DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
+            status_color = theme.ACCENT
+        elif view.result is GameResult.BLACK_WIN:
             status = "黑方获胜"
             note = "五子连珠"
             status_color = theme.WARM_ACCENT
@@ -355,13 +626,21 @@ class DropFiveWindow:
         else:
             status = f"{_STONE_LABELS[view.current_stone]}回合"
             note = "黑方先行" if view.move_count == 0 else "对局进行中"
+            if purpose is SearchPurpose.HINT:
+                note = "正在分析提示"
             status_color = theme.INK
 
         self.status_label.configure(text=status, foreground=status_color)
         self.status_note.configure(text=note)
         self.move_count_label.configure(text=str(view.move_count))
         self.last_move_label.configure(text=_position_label(view.last_move))
-        self.undo_button.set_enabled(view.move_count > 0)
+
+        self.mode_control.set_selected(view.mode.value)
+        self.mode_control.set_enabled(not busy)
+        self.difficulty_control.set_selected(view.difficulty.value)
+        self.difficulty_control.set_enabled(not busy)
+        self.undo_button.set_enabled(view.move_count > 0 and not busy)
+        self.hint_button.set_enabled(view.can_request_hint and not busy)
         self._draw_turn_badge(view)
 
     def _draw_turn_badge(self, view: GameView) -> None:
@@ -444,7 +723,25 @@ class DropFiveWindow:
         self._restart()
         return "break"
 
+    def _hint_from_keyboard(self, _event: tk.Event) -> str:
+        self._request_hint()
+        return "break"
+
+    def _toggle_fullscreen(self, _event: tk.Event) -> str:
+        fullscreen = bool(self.root.attributes("-fullscreen"))
+        self.root.attributes("-fullscreen", not fullscreen)
+        return "break"
+
+    def _exit_fullscreen(self, _event: tk.Event) -> str:
+        self.root.attributes("-fullscreen", False)
+        return "break"
+
     def _close(self) -> None:
+        self._closed = True
+        self._cancel_search()
+        if self._poll_after is not None:
+            self.root.after_cancel(self._poll_after)
+            self._poll_after = None
         if self._message_after is not None:
             self.root.after_cancel(self._message_after)
             self._message_after = None
