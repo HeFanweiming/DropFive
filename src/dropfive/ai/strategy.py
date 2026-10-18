@@ -6,6 +6,7 @@ from dataclasses import replace
 from dropfive.ai.difficulty import Difficulty, get_difficulty_config
 from dropfive.ai.evaluator import Evaluator
 from dropfive.ai.move_generator import MoveGenerator
+from dropfive.ai.onnx_policy import OnnxPolicyModel, policy_priors
 from dropfive.ai.search import AlphaBetaSearch, SearchResult
 from dropfive.model.board import Board
 from dropfive.model.stone import Stone
@@ -17,10 +18,13 @@ class GomokuAI:
         difficulty: Difficulty,
         *,
         rng: random.Random | None = None,
+        policy_model: OnnxPolicyModel | None = None,
     ) -> None:
         self._difficulty = difficulty
         self._config = get_difficulty_config(difficulty)
         self._rng = rng or random.Random()
+        self._policy_model = policy_model
+        self.last_model_error: str | None = None
 
     def choose_move(
         self,
@@ -28,7 +32,15 @@ class GomokuAI:
         stone: Stone,
     ) -> SearchResult:
         board = Board.from_snapshot(snapshot)
-        result = AlphaBetaSearch(self._config).search(board, stone)
+        priors = None
+        if self._policy_model is not None:
+            try:
+                output = self._policy_model.infer(snapshot, stone)
+                priors = policy_priors(output.logits, snapshot)
+            except Exception as exc:
+                self.last_model_error = str(exc)
+
+        result = AlphaBetaSearch(self._config).search(board, stone, priors)
         if (
             self._difficulty is not Difficulty.EASY
             or result.reason != "search"

@@ -55,7 +55,12 @@ class AlphaBetaSearch:
         self._table: dict[tuple[int, int], _TableEntry] = {}
         self._zobrist: list[list[list[int]]] = []
 
-    def search(self, board: Board, stone: Stone) -> SearchResult:
+    def search(
+        self,
+        board: Board,
+        stone: Stone,
+        policy_priors: dict[tuple[int, int], float] | None = None,
+    ) -> SearchResult:
         started = time.perf_counter()
         self._nodes = 0
         self._table.clear()
@@ -148,6 +153,7 @@ class AlphaBetaSearch:
                     deadline,
                     position_hash,
                     best_move,
+                    policy_priors,
                 )
             except _SearchTimeout:
                 break
@@ -230,12 +236,21 @@ class AlphaBetaSearch:
         deadline: _Deadline,
         position_hash: int,
         preferred_move: tuple[int, int],
+        policy_priors: dict[tuple[int, int], float] | None,
     ) -> tuple[tuple[int, int], int]:
         best_move = preferred_move
         best_score = -_INFINITY
         alpha = -_INFINITY
 
-        for row, col in self._ordered_candidates(board, stone, preferred_move):
+        candidates = self._ordered_candidates(board, stone, preferred_move)
+        if policy_priors:
+            candidates = self._apply_policy_priors(
+                candidates,
+                board,
+                policy_priors,
+                preferred_move,
+            )
+        for row, col in candidates:
             deadline.check()
             child_hash = position_hash ^ self._zobrist[row][col][stone.value]
             board.place(row, col, stone)
@@ -358,6 +373,36 @@ class AlphaBetaSearch:
             candidates.remove(preferred_move)
             candidates.insert(0, preferred_move)
         return candidates
+
+    @staticmethod
+    def _apply_policy_priors(
+        candidates: list[tuple[int, int]],
+        board: Board,
+        priors: dict[tuple[int, int], float],
+        preferred_move: tuple[int, int],
+    ) -> list[tuple[int, int]]:
+        if board.stone_count == 0:
+            return candidates
+        prior_moves = [
+            move
+            for move in sorted(priors, key=priors.get, reverse=True)
+            if board.is_empty(*move) and AlphaBetaSearch._is_local_move(board, move)
+        ][:4]
+        combined = list(dict.fromkeys([*candidates, *prior_moves]))
+        combined.sort(key=lambda move: priors.get(move, -1.0), reverse=True)
+        if preferred_move in combined:
+            combined.remove(preferred_move)
+            combined.insert(0, preferred_move)
+        return combined
+
+    @staticmethod
+    def _is_local_move(board: Board, move: tuple[int, int]) -> bool:
+        row, col = move
+        for next_row in range(max(0, row - 2), min(board.size, row + 3)):
+            for next_col in range(max(0, col - 2), min(board.size, col + 3)):
+                if board.stone_at(next_row, next_col) is not Stone.EMPTY:
+                    return True
+        return False
 
     def _prepare_zobrist(self, size: int) -> None:
         if len(self._zobrist) == size:
