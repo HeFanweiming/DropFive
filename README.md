@@ -91,10 +91,8 @@ pytest
 - `PATCH`：向后兼容的错误修复。
 
 每个可运行版本独立提交、更新 `CHANGELOG.md` 并创建 `vX.Y.Z` 标签。详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+<img width="18" height="18" alt="download" src="https://github.com/user-attachments/assets/5cadfa55-1dec-4159-9b69-3cd3845b73bd" />
 
-## 仓库范围
-
-本仓库只存放落五程序自身相关的源代码、测试、资源、设计和发布说明。课程计划表、报告模板、教学指导书及其他与程序无关的资料不纳入版本控制。
 
 ## 许可证
 
