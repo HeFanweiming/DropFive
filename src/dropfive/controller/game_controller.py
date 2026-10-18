@@ -34,6 +34,7 @@ class GameView:
     winning_cells: tuple[tuple[int, int], ...]
     mode: GameMode
     difficulty: Difficulty
+    human_stone: Stone
     game_id: int
     is_ai_turn: bool
     can_human_play: bool
@@ -73,11 +74,15 @@ class GameController:
         *,
         mode: GameMode = GameMode.TWO_PLAYER,
         difficulty: Difficulty = Difficulty.HARD,
+        human_stone: Stone = Stone.BLACK,
     ) -> None:
+        if human_stone is Stone.EMPTY:
+            raise ValueError("Human stone cannot be empty")
         self._engine = GameEngine(board_size)
         self._mode = mode
         self._difficulty = difficulty
-        self._ai_stone = Stone.WHITE
+        self._human_stone = human_stone
+        self._ai_stone = human_stone.opponent
         self._game_id = 1
 
     @property
@@ -194,6 +199,7 @@ class GameController:
             winning_cells=self._engine.winning_line,
             mode=self._mode,
             difficulty=self._difficulty,
+            human_stone=self._human_stone,
             game_id=self._game_id,
             is_ai_turn=self.is_ai_turn,
             can_human_play=self.can_human_play,
