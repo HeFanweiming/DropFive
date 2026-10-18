@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-`v0.3.0` 已补齐双人对战、人机对战、四档 AI 和落子提示，并完成现代风格界面重构。
+`v0.4.0` 已补齐双人对战、人机对战、四档 AI、落子提示，并加入可选 ONNX 模型增强。
 
 ## 已实现功能
 
@@ -16,6 +16,7 @@
 - Zobrist 置换表、主变优先排序和更深迭代搜索。
 - 防守型强制搜索与大师档五秒深度搜索。
 - 后台 AI 计算、过期结果保护和 AI 回合输入锁定。
+- 可选 ONNX 策略先验、GPU Provider 自动检测和 CPU 回退。
 - 落子提示与人机模式双步悔棋。
 - 横、竖及两条斜线方向的胜负判断。
 - 满盘和棋判断。
@@ -26,13 +27,14 @@
 
 ## 后续计划
 
-- 可选 ONNX 模型增强，保持为离线、非必需能力。
 - 更丰富的战术基准集和棋力对照测试。
+- ONNX 模型与纯搜索棋力的长期对照评估。
 
 ## 技术栈
 
 - Python 3.11 或 3.12
 - tkinter
+- onnxruntime（可选）
 - pytest
 - Ruff
 
@@ -63,6 +65,14 @@ python -m pip install -e ".[dev]"
 ```powershell
 python -m dropfive
 ```
+
+可选 ONNX 增强：
+
+```powershell
+python -m pip install -e ".[onnx]"
+```
+
+将兼容模型放入 `models/` 即可自动启用。模型文件不会提交到 Git；Provider、输入输出格式和 GPU 安装方式见 [models/README.md](models/README.md)。
 
 运行质量检查：
 

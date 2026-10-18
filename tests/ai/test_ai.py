@@ -3,6 +3,7 @@ import time
 import pytest
 
 from dropfive.ai.difficulty import Difficulty, get_difficulty_config
+from dropfive.ai.search import AlphaBetaSearch
 from dropfive.ai.strategy import GomokuAI
 from dropfive.model.board import Board
 from dropfive.model.stone import Stone
@@ -33,6 +34,16 @@ def test_all_difficulties_block_an_immediate_loss(difficulty: Difficulty) -> Non
 
 def test_empty_board_starts_at_center() -> None:
     result = GomokuAI(Difficulty.MEDIUM).choose_move(Board().snapshot(), Stone.WHITE)
+
+    assert result.move == (7, 7)
+
+
+def test_policy_prior_cannot_override_center_opening() -> None:
+    result = AlphaBetaSearch(get_difficulty_config(Difficulty.EASY)).search(
+        Board(),
+        Stone.BLACK,
+        {(13, 13): 1.0, (0, 0): 0.9, (7, 7): 0.8},
+    )
 
     assert result.move == (7, 7)
 

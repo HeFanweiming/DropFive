@@ -10,6 +10,7 @@ from tkinter import messagebox
 
 from dropfive import __version__
 from dropfive.ai.difficulty import Difficulty
+from dropfive.ai.onnx_policy import load_optional_model
 from dropfive.ai.search import SearchResult
 from dropfive.ai.strategy import GomokuAI
 from dropfive.controller.game_controller import (
@@ -109,6 +110,7 @@ class DropFiveWindow:
         self._poll_after: str | None = None
         self._hint_cell: tuple[int, int] | None = None
         self._closed = False
+        self.policy_model, self._model_error = load_optional_model()
 
         self.root.title("落五 DropFive")
         self.root.geometry("1180x820")
@@ -424,6 +426,26 @@ class DropFiveWindow:
             padx=8,
             pady=4,
         ).grid(row=0, column=1, sticky="e")
+        engine_text = (
+            f"AI 引擎 · {self.policy_model.backend_label}"
+            if self.policy_model is not None
+            else "AI 引擎 · 本地搜索 CPU"
+        )
+        self.engine_label = tk.Label(
+            footer,
+            text=engine_text,
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Segoe UI", 8),
+            anchor="w",
+        )
+        self.engine_label.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(6, 0),
+        )
 
     def _handle_body_resize(self, event: tk.Event) -> None:
         available_width = event.width - _SIDEBAR_WIDTH - _BOARD_GAP
@@ -513,7 +535,10 @@ class DropFiveWindow:
 
     def _run_search(self, token: int, request: SearchRequest) -> None:
         try:
-            result = GomokuAI(request.difficulty).choose_move(request.board, request.stone)
+            result = GomokuAI(
+                request.difficulty,
+                policy_model=self.policy_model,
+            ).choose_move(request.board, request.stone)
         except Exception as exc:  # The worker boundary must report failures to the UI.
             completion = _SearchCompletion(
                 token=token,
