@@ -119,3 +119,23 @@ def test_mode_change_resets_the_game() -> None:
     assert view.mode is GameMode.HUMAN_VS_AI
     assert view.move_count == 0
     assert view.current_stone is Stone.BLACK
+
+
+def test_human_can_choose_white_and_ai_moves_first() -> None:
+    controller = GameController(
+        mode=GameMode.HUMAN_VS_AI,
+        human_stone=Stone.WHITE,
+    )
+
+    view = controller.view()
+    assert view.human_stone is Stone.WHITE
+    assert view.is_ai_turn
+
+    request = controller.make_search_request(SearchPurpose.AI_MOVE)
+    assert request is not None
+    assert request.stone is Stone.BLACK
+    assert controller.play_ai_move(7, 7, request.game_id).ok
+
+    view = controller.view()
+    assert view.current_stone is Stone.WHITE
+    assert view.can_human_play

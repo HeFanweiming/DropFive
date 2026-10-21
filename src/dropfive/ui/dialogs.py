@@ -1,0 +1,492 @@
+"""Pre-game, settings, and about dialogs."""
+
+from __future__ import annotations
+
+import tkinter as tk
+import webbrowser
+from typing import Generic, TypeVar
+
+from dropfive import __version__
+from dropfive.ai.difficulty import Difficulty
+from dropfive.controller.game_controller import GameMode
+from dropfive.model.stone import Stone
+from dropfive.settings import AppSettings
+from dropfive.ui import theme
+from dropfive.ui.options import (
+    DIFFICULTY_OPTIONS,
+    MODE_OPTIONS,
+    SIDE_OPTIONS,
+)
+from dropfive.ui.widgets import ActionButton, SegmentedControl
+
+_ResultT = TypeVar("_ResultT")
+_PROJECT_URL = "https://github.com/HeFanweiming/DropFive"
+
+
+class _Dialog(tk.Toplevel, Generic[_ResultT]):
+    def __init__(
+        self,
+        parent: tk.Tk,
+        *,
+        title: str,
+        size: tuple[int, int],
+        transient: bool,
+    ) -> None:
+        super().__init__(parent)
+        self.withdraw()
+        self.title(title)
+        self.configure(background=theme.APP_BG)
+        self.resizable(False, False)
+        self.result: _ResultT | None = None
+        self._size = size
+        if transient:
+            self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda _event: self._cancel())
+
+    def show(self) -> _ResultT | None:
+        self.update_idletasks()
+        width, height = self._size
+        x = max(0, (self.winfo_screenwidth() - width) // 2)
+        y = max(0, (self.winfo_screenheight() - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.deiconify()
+        self.grab_set()
+        self.focus_force()
+        self.wait_window(self)
+        return self.result
+
+    def _cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+
+class GameSetupDialog(_Dialog[AppSettings]):
+    def __init__(self, parent: tk.Tk, settings: AppSettings) -> None:
+        super().__init__(
+            parent,
+            title="落五 · 开始对局",
+            size=(560, 600),
+            transient=False,
+        )
+        self._base_settings = settings
+        self._mode = settings.mode
+        self._difficulty = settings.difficulty
+        self._human_stone = settings.human_stone
+        self._build()
+
+    def _build(self) -> None:
+        panel = tk.Frame(
+            self,
+            background=theme.SURFACE,
+            highlightbackground=theme.BORDER,
+            highlightthickness=1,
+            padx=28,
+            pady=26,
+        )
+        panel.pack(fill="both", expand=True, padx=24, pady=24)
+        panel.columnconfigure(0, weight=1)
+
+        tk.Label(
+            panel,
+            text="开始对局",
+            background=theme.SURFACE,
+            foreground=theme.INK,
+            font=("Microsoft YaHei UI", 24, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            panel,
+            text=f"落五 DropFive · v{__version__}",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 22))
+
+        row = 2
+        row = self._add_control(
+            panel,
+            row,
+            "模式",
+            MODE_OPTIONS,
+            self._mode.value,
+            self._mode_changed,
+        )
+        row = self._add_control(
+            panel,
+            row,
+            "难度",
+            DIFFICULTY_OPTIONS,
+            self._difficulty.value,
+            self._difficulty_changed,
+        )
+        row = self._add_control(
+            panel,
+            row,
+            "先后手",
+            SIDE_OPTIONS,
+            str(int(self._human_stone.value)),
+            self._side_changed,
+        )
+        self.side_control = self._controls["先后手"]
+        self.side_hint = tk.Label(
+            panel,
+            text="",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        )
+        self.side_hint.grid(row=row, column=0, sticky="w", pady=(2, 18))
+        row += 1
+
+        self.start_button = ActionButton(
+            panel,
+            text="开始对局",
+            icon="▶",
+            command=self._start,
+            background=theme.SURFACE,
+            height=46,
+        )
+        self.start_button.grid(row=row, column=0, sticky="ew")
+        row += 1
+        ActionButton(
+            panel,
+            text="取消",
+            icon="×",
+            command=self._cancel,
+            background=theme.SURFACE,
+            variant="secondary",
+            height=40,
+        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+
+        self._refresh_side_state()
+
+    def _add_control(
+        self,
+        parent: tk.Misc,
+        row: int,
+        label: str,
+        options: list[tuple[str, str]],
+        selected: str,
+        command,
+    ) -> int:
+        tk.Label(
+            parent,
+            text=label,
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        control = SegmentedControl(
+            parent,
+            options=options,
+            selected=selected,
+            command=command,
+            background=theme.SURFACE,
+            height=38,
+        )
+        control.grid(row=row + 1, column=0, sticky="ew", pady=(5, 14))
+        if not hasattr(self, "_controls"):
+            self._controls: dict[str, SegmentedControl] = {}
+        self._controls[label] = control
+        return row + 2
+
+    def _mode_changed(self, value: str) -> None:
+        self._mode = GameMode(value)
+        self._refresh_side_state()
+
+    def _difficulty_changed(self, value: str) -> None:
+        self._difficulty = Difficulty(value)
+
+    def _side_changed(self, value: str) -> None:
+        self._human_stone = Stone(int(value))
+        self._refresh_side_state()
+
+    def _refresh_side_state(self) -> None:
+        human_vs_ai = self._mode is GameMode.HUMAN_VS_AI
+        self.side_control.set_enabled(human_vs_ai)
+        self.side_hint.configure(
+            text="你执黑先行"
+            if human_vs_ai and self._human_stone is Stone.BLACK
+            else "你执白后行，AI 先落子"
+            if human_vs_ai
+            else "双人模式黑方先手"
+        )
+
+    def _start(self) -> None:
+        self.result = AppSettings(
+            mode=self._mode,
+            difficulty=self._difficulty,
+            human_stone=self._human_stone,
+            use_onnx=self._base_settings.use_onnx,
+        )
+        self.destroy()
+
+
+class SettingsDialog(_Dialog[AppSettings]):
+    def __init__(
+        self,
+        parent: tk.Tk,
+        settings: AppSettings,
+        *,
+        model_available: bool,
+    ) -> None:
+        super().__init__(
+            parent,
+            title="落五 · 设置",
+            size=(560, 660),
+            transient=True,
+        )
+        self._settings = settings
+        self._mode = settings.mode
+        self._difficulty = settings.difficulty
+        self._human_stone = settings.human_stone
+        self._use_onnx = settings.use_onnx
+        self._model_available = model_available
+        self._build()
+
+    def _build(self) -> None:
+        panel = tk.Frame(
+            self,
+            background=theme.SURFACE,
+            highlightbackground=theme.BORDER,
+            highlightthickness=1,
+            padx=28,
+            pady=26,
+        )
+        panel.pack(fill="both", expand=True, padx=24, pady=24)
+        panel.columnconfigure(0, weight=1)
+
+        tk.Label(
+            panel,
+            text="设置",
+            background=theme.SURFACE,
+            foreground=theme.INK,
+            font=("Microsoft YaHei UI", 24, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            panel,
+            text="保存后用于下次启动和开局",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 20))
+
+        row = 2
+        row = self._add_control(
+            panel,
+            row,
+            "默认模式",
+            MODE_OPTIONS,
+            self._mode.value,
+            self._mode_changed,
+        )
+        row = self._add_control(
+            panel,
+            row,
+            "默认难度",
+            DIFFICULTY_OPTIONS,
+            self._difficulty.value,
+            self._difficulty_changed,
+        )
+        row = self._add_control(
+            panel,
+            row,
+            "默认先后手",
+            SIDE_OPTIONS,
+            str(int(self._human_stone.value)),
+            self._side_changed,
+        )
+        self.side_control = self._controls["默认先后手"]
+        row = self._add_control(
+            panel,
+            row,
+            "AI 引擎",
+            [("onnx", "ONNX 增强"), ("cpu", "仅 CPU 搜索")],
+            "onnx" if self._use_onnx else "cpu",
+            self._engine_changed,
+        )
+        self.engine_hint = tk.Label(
+            panel,
+            text=(
+                "ONNX 模型已就绪，自动选择 GPU/CPU Provider"
+                if self._model_available
+                else "未检测到可用 ONNX 模型，将自动使用 CPU 搜索"
+            ),
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 8),
+            anchor="w",
+            wraplength=430,
+        )
+        self.engine_hint.grid(row=row, column=0, sticky="w", pady=(0, 16))
+        row += 1
+
+        ActionButton(
+            panel,
+            text="保存设置",
+            icon="✓",
+            command=self._save,
+            background=theme.SURFACE,
+            height=46,
+        ).grid(row=row, column=0, sticky="ew")
+        row += 1
+        ActionButton(
+            panel,
+            text="取消",
+            icon="×",
+            command=self._cancel,
+            background=theme.SURFACE,
+            variant="secondary",
+            height=40,
+        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        self._refresh_side_state()
+
+    def _add_control(
+        self,
+        parent: tk.Misc,
+        row: int,
+        label: str,
+        options: list[tuple[str, str]],
+        selected: str,
+        command,
+    ) -> int:
+        tk.Label(
+            parent,
+            text=label,
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        control = SegmentedControl(
+            parent,
+            options=options,
+            selected=selected,
+            command=command,
+            background=theme.SURFACE,
+            height=36,
+        )
+        control.grid(row=row + 1, column=0, sticky="ew", pady=(4, 10))
+        if not hasattr(self, "_controls"):
+            self._controls: dict[str, SegmentedControl] = {}
+        self._controls[label] = control
+        return row + 2
+
+    def _mode_changed(self, value: str) -> None:
+        self._mode = GameMode(value)
+        self._refresh_side_state()
+
+    def _difficulty_changed(self, value: str) -> None:
+        self._difficulty = Difficulty(value)
+
+    def _side_changed(self, value: str) -> None:
+        self._human_stone = Stone(int(value))
+
+    def _engine_changed(self, value: str) -> None:
+        self._use_onnx = value == "onnx"
+
+    def _refresh_side_state(self) -> None:
+        self.side_control.set_enabled(self._mode is GameMode.HUMAN_VS_AI)
+
+    def _save(self) -> None:
+        self.result = AppSettings(
+            mode=self._mode,
+            difficulty=self._difficulty,
+            human_stone=self._human_stone,
+            use_onnx=self._use_onnx,
+        )
+        self.destroy()
+
+
+class AboutDialog(_Dialog[None]):
+    def __init__(self, parent: tk.Tk) -> None:
+        super().__init__(
+            parent,
+            title="落五 · 关于我们",
+            size=(560, 500),
+            transient=True,
+        )
+        self._build()
+
+    def _build(self) -> None:
+        panel = tk.Frame(
+            self,
+            background=theme.SURFACE,
+            highlightbackground=theme.BORDER,
+            highlightthickness=1,
+            padx=30,
+            pady=28,
+        )
+        panel.pack(fill="both", expand=True, padx=24, pady=24)
+        panel.columnconfigure(0, weight=1)
+
+        tk.Label(
+            panel,
+            text="落五 DropFive",
+            background=theme.SURFACE,
+            foreground=theme.INK,
+            font=("Microsoft YaHei UI", 24, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            panel,
+            text=f"Version {__version__}",
+            background=theme.SURFACE,
+            foreground=theme.ACCENT,
+            font=("Segoe UI", 9, "bold"),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 18))
+        tk.Label(
+            panel,
+            text="一个面向年轻玩家的智能五子棋桌面程序。",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 10),
+            anchor="w",
+        ).grid(row=2, column=0, sticky="w")
+
+        info = (
+            "作者  HeFanweiming\n"
+            "AI  Alpha-Beta · VCF · ONNX 可选增强\n"
+            "模型  whyb/Gomoku-AI · BSD-3-Clause\n"
+            "界面  Python + tkinter"
+        )
+        tk.Label(
+            panel,
+            text=info,
+            background=theme.SURFACE_ALT,
+            foreground=theme.INK,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            justify="left",
+            padx=16,
+            pady=14,
+        ).grid(row=3, column=0, sticky="ew", pady=(22, 16))
+
+        link = tk.Label(
+            panel,
+            text=_PROJECT_URL,
+            background=theme.SURFACE,
+            foreground=theme.ACCENT,
+            font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+            anchor="w",
+        )
+        link.grid(row=4, column=0, sticky="w")
+        link.bind("<Button-1>", lambda _event: webbrowser.open(_PROJECT_URL))
+
+        ActionButton(
+            panel,
+            text="关闭",
+            icon="×",
+            command=self._cancel,
+            background=theme.SURFACE,
+            variant="secondary",
+            height=42,
+        ).grid(row=5, column=0, sticky="ew", pady=(28, 0))

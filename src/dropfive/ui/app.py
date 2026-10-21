@@ -1,5 +1,6 @@
 """Main tkinter application window."""
 
+import contextlib
 import ctypes
 import queue
 import sys
@@ -25,8 +26,16 @@ from dropfive.controller.game_controller import (
 from dropfive.model.game import GameResult
 from dropfive.model.history import Move
 from dropfive.model.stone import Stone
+from dropfive.settings import AppSettings, load_settings, save_settings
 from dropfive.ui import theme
 from dropfive.ui.board_canvas import BoardCanvas
+from dropfive.ui.dialogs import AboutDialog, GameSetupDialog, SettingsDialog
+from dropfive.ui.options import (
+    DIFFICULTY_LABELS,
+    DIFFICULTY_OPTIONS,
+    MODE_LABELS,
+    MODE_OPTIONS,
+)
 from dropfive.ui.widgets import ActionButton, SegmentedControl
 
 _BOARD_SIZE = 15
@@ -38,30 +47,6 @@ _STONE_LABELS = {
     Stone.BLACK: "黑方",
     Stone.WHITE: "白方",
 }
-
-_MODE_LABELS = {
-    GameMode.TWO_PLAYER: "双人对战",
-    GameMode.HUMAN_VS_AI: "人机对战",
-}
-
-_DIFFICULTY_LABELS = {
-    Difficulty.EASY: "简单",
-    Difficulty.MEDIUM: "普通",
-    Difficulty.HARD: "困难",
-    Difficulty.MASTER: "大师",
-}
-
-_MODE_OPTIONS = [
-    (GameMode.TWO_PLAYER.value, "双人"),
-    (GameMode.HUMAN_VS_AI.value, "人机"),
-]
-
-_DIFFICULTY_OPTIONS = [
-    (Difficulty.EASY.value, "简单"),
-    (Difficulty.MEDIUM.value, "普通"),
-    (Difficulty.HARD.value, "困难"),
-    (Difficulty.MASTER.value, "大师"),
-]
 
 _ERROR_MESSAGES = {
     ActionError.OUT_OF_BOUNDS: "该位置不在棋盘内。",
@@ -98,9 +83,11 @@ class DropFiveWindow:
         self,
         root: tk.Tk,
         controller: GameController | None = None,
+        settings: AppSettings | None = None,
     ) -> None:
         self.root = root
         self.controller = controller or GameController(_BOARD_SIZE)
+        self.settings = settings or AppSettings()
         self._message_after: str | None = None
         self._last_board_side = 0
 
@@ -110,7 +97,9 @@ class DropFiveWindow:
         self._poll_after: str | None = None
         self._hint_cell: tuple[int, int] | None = None
         self._closed = False
-        self.policy_model, self._model_error = load_optional_model()
+        self.policy_model, self._model_error = (
+            load_optional_model() if self.settings.use_onnx else (None, None)
+        )
 
         self.root.title("落五 DropFive")
         self.root.geometry("1180x820")
@@ -126,6 +115,7 @@ class DropFiveWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
         self._poll_after = self.root.after(50, self._poll_search_results)
+        self.root.after(120, self._start_ai_if_needed)
 
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -170,7 +160,7 @@ class DropFiveWindow:
             highlightbackground=theme.BORDER,
             highlightthickness=1,
             padx=24,
-            pady=24,
+            pady=22,
         )
         self.sidebar.grid(row=0, column=2, sticky="ns")
         self.sidebar.columnconfigure(0, weight=1)
@@ -201,7 +191,7 @@ class DropFiveWindow:
 
         self.mode_chip = tk.Label(
             header,
-            text=_MODE_LABELS[self.controller.view().mode],
+            text=MODE_LABELS[self.controller.view().mode],
             background=theme.HEADER_CHIP,
             foreground=theme.HEADER_CHIP_TEXT,
             font=("Microsoft YaHei UI", 9),
@@ -237,7 +227,7 @@ class DropFiveWindow:
 
         self.mode_control = SegmentedControl(
             controls,
-            options=_MODE_OPTIONS,
+            options=MODE_OPTIONS,
             selected=view.mode.value,
             command=self._handle_mode_change,
             background=theme.SURFACE,
@@ -256,7 +246,7 @@ class DropFiveWindow:
 
         self.difficulty_control = SegmentedControl(
             controls,
-            options=_DIFFICULTY_OPTIONS,
+            options=DIFFICULTY_OPTIONS,
             selected=view.difficulty.value,
             command=self._handle_difficulty_change,
             background=theme.SURFACE,
@@ -402,7 +392,7 @@ class DropFiveWindow:
             wraplength=218,
             height=1,
         )
-        self.message_label.grid(row=7, column=0, sticky="ew", pady=(8, 0))
+        self.message_label.grid(row=7, column=0, sticky="ew", pady=(6, 0))
 
         footer = tk.Frame(self.sidebar, background=theme.SURFACE)
         footer.grid(row=10, column=0, sticky="ew")
@@ -444,8 +434,32 @@ class DropFiveWindow:
             column=0,
             columnspan=2,
             sticky="w",
-            pady=(6, 0),
+            pady=(4, 0),
         )
+        utility = tk.Frame(footer, background=theme.SURFACE)
+        utility.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        utility.columnconfigure(0, weight=1)
+        utility.columnconfigure(1, weight=1)
+        ActionButton(
+            utility,
+            text="设置",
+            icon="⚙",
+            command=self._open_settings,
+            background=theme.SURFACE,
+            variant="secondary",
+            width=105,
+            height=34,
+        ).grid(row=0, column=0, sticky="ew")
+        ActionButton(
+            utility,
+            text="关于",
+            icon="ⓘ",
+            command=self._open_about,
+            background=theme.SURFACE,
+            variant="secondary",
+            width=105,
+            height=34,
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
     def _handle_body_resize(self, event: tk.Event) -> None:
         available_width = event.width - _SIDEBAR_WIDTH - _BOARD_GAP
@@ -473,6 +487,8 @@ class DropFiveWindow:
         result = self.controller.undo()
         self._handle_action_result(result)
         self._refresh()
+        if result.ok:
+            self._start_ai_if_needed()
 
     def _restart(self) -> None:
         self._cancel_search()
@@ -480,6 +496,7 @@ class DropFiveWindow:
         result = self.controller.restart()
         self._handle_action_result(result)
         self._refresh()
+        self._start_ai_if_needed()
 
     def _request_hint(self) -> None:
         if self._active_search is not None:
@@ -505,6 +522,7 @@ class DropFiveWindow:
         self.controller.set_mode(mode)
         self._clear_message()
         self._refresh()
+        self._start_ai_if_needed()
 
     def _handle_difficulty_change(self, value: str) -> None:
         self._cancel_search()
@@ -522,6 +540,10 @@ class DropFiveWindow:
         self._active_search = request
         self._refresh()
         self.root.after(30, self._launch_search, self._search_token, request)
+
+    def _start_ai_if_needed(self) -> None:
+        if self._active_search is None and self.controller.view().is_ai_turn:
+            self._begin_search(SearchPurpose.AI_MOVE)
 
     def _launch_search(self, token: int, request: SearchRequest) -> None:
         if token != self._search_token or self._closed:
@@ -628,11 +650,11 @@ class DropFiveWindow:
     def _update_sidebar(self, view: GameView) -> None:
         busy = self._active_search is not None
         purpose = self._active_search.purpose if self._active_search else None
-        self.mode_chip.configure(text=_MODE_LABELS[view.mode])
+        self.mode_chip.configure(text=MODE_LABELS[view.mode])
 
         if purpose is SearchPurpose.AI_MOVE:
             status = "AI 思考中"
-            note = f"{_DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
+            note = f"{DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
             status_color = theme.ACCENT
         elif view.result is GameResult.BLACK_WIN:
             status = "黑方获胜"
@@ -738,6 +760,39 @@ class DropFiveWindow:
         self._message_after = None
         self.message_label.configure(text="")
 
+    def _open_settings(self) -> None:
+        updated = SettingsDialog(
+            self.root,
+            self.settings,
+            model_available=self.policy_model is not None,
+        ).show()
+        if updated is None:
+            return
+        try:
+            save_settings(updated)
+        except OSError as exc:
+            self._show_message(f"设置保存失败：{exc}")
+            return
+
+        if updated.use_onnx != self.settings.use_onnx:
+            self.policy_model, self._model_error = (
+                load_optional_model() if updated.use_onnx else (None, None)
+            )
+        self.settings = updated
+        self._refresh_engine_label()
+        self._show_message("设置已保存")
+
+    def _open_about(self) -> None:
+        AboutDialog(self.root).show()
+
+    def _refresh_engine_label(self) -> None:
+        text = (
+            f"AI 引擎 · {self.policy_model.backend_label}"
+            if self.policy_model is not None
+            else "AI 引擎 · 本地搜索 CPU"
+        )
+        self.engine_label.configure(text=text)
+
     def _undo_from_keyboard(self, _event: tk.Event) -> str:
         self._undo()
         return "break"
@@ -783,5 +838,21 @@ def _enable_high_dpi() -> None:
 def main() -> None:
     _enable_high_dpi()
     root = tk.Tk()
-    DropFiveWindow(root)
+    root.withdraw()
+    saved_settings = load_settings()
+    selected = GameSetupDialog(root, saved_settings).show()
+    if selected is None:
+        root.destroy()
+        return
+
+    with contextlib.suppress(OSError):
+        save_settings(selected)
+    controller = GameController(
+        _BOARD_SIZE,
+        mode=selected.mode,
+        difficulty=selected.difficulty,
+        human_stone=selected.human_stone,
+    )
+    DropFiveWindow(root, controller, selected)
+    root.deiconify()
     root.mainloop()
