@@ -1,4 +1,4 @@
-"""Shared labels and option values for pre-game and settings dialogs."""
+"""开局页和设置页共享的标签与选项值。"""
 
 from dropfive.ai.difficulty import Difficulty
 from dropfive.controller.game_controller import GameMode

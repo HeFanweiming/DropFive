@@ -1,10 +1,14 @@
-"""Pattern scoring and tactical move detection."""
+"""棋型评分、候选落点评分与战术必胜点检测。
+
+评估函数始终从传入的 ``perspective`` 视角返回分数，不随“当前落子方”
+翻转符号。这样 Minimax 的最大层和最小层不会因视角混用而互相抵消。
+"""
 
 from dropfive.model.board import Board
 from dropfive.model.stone import Stone
 from dropfive.model.win_checker import WinChecker
 
-WIN_SCORE = 10_000_000
+WIN_SCORE = 10_000_000  # 远高于所有普通棋型累加，确保胜负优先于局面分
 
 _DIRECTIONS = ((0, 1), (1, 0), (1, 1), (1, -1))
 _WINDOW_SCORES = {
@@ -19,14 +23,16 @@ _Window = tuple[tuple[int, int], ...]
 
 
 class Evaluator:
-    """Score positions from one fixed stone perspective."""
+    """固定视角的棋型评估器。"""
 
     def __init__(self) -> None:
+        """创建棋盘线窗口缓存，避免在搜索叶子重复生成坐标。"""
         self._line_window_cache: dict[int, tuple[_Window, ...]] = {}
         self._move_window_cache: dict[tuple[int, int, int], tuple[_Window, ...]] = {}
 
     @staticmethod
     def find_winning_moves(board: Board, stone: Stone) -> list[tuple[int, int]]:
+        """扫描所有空位，返回可以让 ``stone`` 下一步直接五连的位置。"""
         moves: list[tuple[int, int]] = []
         for row, col in board.iter_empty():
             board.place(row, col, stone)
@@ -38,6 +44,11 @@ class Evaluator:
         return moves
 
     def candidate_score(self, board: Board, row: int, col: int, stone: Stone) -> int:
+        """计算候选点的综合排序分。
+
+        先按己方落子得到的进攻分，再按对手若占据同一点能得到的防守分，
+        防守权重略低于进攻，避免 AI 只守不攻。
+        """
         if not board.is_empty(row, col):
             return -WIN_SCORE
 
@@ -52,6 +63,10 @@ class Evaluator:
         col: int,
         stone: Stone,
     ) -> set[tuple[int, int]]:
+        """假设当前方落子后，返回它制造出的“下一步必胜点”集合。
+
+        集合大小大于 1 通常表示双四或类似双威胁，对手无法一次封堵全部。
+        """
         if not board.is_empty(row, col):
             return set()
         board.place(row, col, stone)
@@ -62,6 +77,7 @@ class Evaluator:
             board.remove(row, col)
 
     def evaluate_board(self, board: Board, perspective: Stone) -> int:
+        """扫描所有长度为 5 的连续窗口，返回固定视角下的局面分。"""
         opponent = perspective.opponent
         score = 0
         for window in self._line_windows(board.size):
@@ -82,12 +98,14 @@ class Evaluator:
         return score
 
     def _score_placed_stone(self, board: Board, row: int, col: int, stone: Stone) -> int:
+        """临时落子后评估该点的连续棋形、开放端和复合威胁。"""
         board.place(row, col, stone)
         try:
             total = 0
             fours = 0
             open_threes = 0
             for row_step, col_step in _DIRECTIONS:
+                # 连续棋形提供基础分，双方向威胁再由下面统一加奖励。
                 run, open_ends = self._run_info(board, row, col, stone, row_step, col_step)
                 if run >= 5:
                     return WIN_SCORE
@@ -120,6 +138,7 @@ class Evaluator:
         col: int,
         stone: Stone,
     ) -> tuple[set[tuple[int, int]], int]:
+        """一次性提取落子后的必胜点和三子潜力窗口。"""
         winning_points: set[tuple[int, int]] = set()
         three_windows = 0
         for window in self._windows_containing_move(board.size, row, col):
@@ -136,6 +155,7 @@ class Evaluator:
         return winning_points, three_windows
 
     def _line_windows(self, size: int) -> tuple[_Window, ...]:
+        """预计算某个棋盘尺寸下所有横、竖、斜向五格窗口。"""
         cached = self._line_window_cache.get(size)
         if cached is not None:
             return cached
@@ -162,6 +182,7 @@ class Evaluator:
         return result
 
     def _windows_containing_move(self, size: int, row: int, col: int) -> tuple[_Window, ...]:
+        """缓存所有包含指定落点的五格窗口。"""
         key = (size, row, col)
         cached = self._move_window_cache.get(key)
         if cached is not None:
@@ -194,6 +215,7 @@ class Evaluator:
         row_step: int,
         col_step: int,
     ) -> tuple[int, int]:
+        """返回指定方向上的连续棋子数和开放端数量。"""
         count = 1
         open_ends = 0
 
@@ -218,6 +240,7 @@ class Evaluator:
 
     @staticmethod
     def _pattern_score(run: int, open_ends: int) -> int:
+        """把“连子数 + 开放端”映射为启发式棋型分。"""
         if run >= 5:
             return WIN_SCORE
         if run == 4:

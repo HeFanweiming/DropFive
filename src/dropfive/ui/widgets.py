@@ -1,4 +1,4 @@
-"""Small custom controls used by the DropFive window."""
+"""落五使用的小型自绘控件。"""
 
 import tkinter as tk
 from collections.abc import Callable
@@ -13,6 +13,7 @@ def _rounded_points(
     y1: float,
     radius: float,
 ) -> tuple[float, ...]:
+    """生成 tkinter 平滑多边形可用的圆角矩形路径。"""
     return (
         x0 + radius,
         y0,
@@ -42,7 +43,7 @@ def _rounded_points(
 
 
 class ActionButton(tk.Canvas):
-    """Rounded canvas button with hover, focus, and disabled states."""
+    """支持悬停、焦点、按下和禁用状态的圆角按钮。"""
 
     def __init__(
         self,
@@ -56,6 +57,7 @@ class ActionButton(tk.Canvas):
         width: int = 232,
         height: int = 48,
     ) -> None:
+        """创建按钮并保存命令、图标和视觉变体。"""
         super().__init__(
             master,
             width=width,
@@ -90,6 +92,7 @@ class ActionButton(tk.Canvas):
         self._draw()
 
     def set_enabled(self, enabled: bool) -> None:
+        """切换按钮可用性并更新鼠标指针。"""
         if self._enabled == enabled:
             return
         self._enabled = enabled
@@ -99,6 +102,7 @@ class ActionButton(tk.Canvas):
         self._draw()
 
     def invoke(self) -> None:
+        """在按钮可用时执行绑定命令。"""
         if self._enabled:
             self._command()
 
@@ -117,6 +121,7 @@ class ActionButton(tk.Canvas):
         self._draw()
 
     def _handle_press(self, _event: tk.Event) -> None:
+        """记录按下状态，同时让自定义按钮获得键盘焦点。"""
         if not self._enabled:
             return
         self.focus_set()
@@ -124,6 +129,7 @@ class ActionButton(tk.Canvas):
         self._draw()
 
     def _handle_release(self, event: tk.Event) -> None:
+        """只有按下后仍在按钮范围内释放时才触发命令。"""
         if not self._enabled:
             return
         inside = 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height()
@@ -146,6 +152,7 @@ class ActionButton(tk.Canvas):
         return "break"
 
     def _draw(self) -> None:
+        """根据当前状态绘制圆角背景、图标和文字。"""
         width = max(self.winfo_width(), self._width_hint)
         height = max(self.winfo_height(), self._height_hint)
         self.delete("all")
@@ -179,6 +186,7 @@ class ActionButton(tk.Canvas):
         )
 
     def _colors(self) -> tuple[str, str]:
+        """返回当前变体、状态对应的背景色和前景色。"""
         if not self._enabled:
             return theme.BUTTON_DISABLED_BG, theme.BUTTON_DISABLED_FG
         if self._variant == "primary":
@@ -194,7 +202,7 @@ class ActionButton(tk.Canvas):
 
 
 class SegmentedControl(tk.Canvas):
-    """Compact single-choice control for game mode and difficulty."""
+    """用于模式、难度等单选项的紧凑分段控件。"""
 
     def __init__(
         self,
@@ -207,6 +215,7 @@ class SegmentedControl(tk.Canvas):
         width: int = 232,
         height: int = 36,
     ) -> None:
+        """创建分段选项并进行值合法性检查。"""
         super().__init__(
             master,
             width=width,
@@ -237,6 +246,7 @@ class SegmentedControl(tk.Canvas):
         self._draw()
 
     def set_selected(self, value: str) -> None:
+        """程序化更新当前选项。"""
         if value not in {option_value for option_value, _ in self._segment_options}:
             raise ValueError("Unknown segmented control value")
         if value != self._selected:
@@ -244,6 +254,7 @@ class SegmentedControl(tk.Canvas):
             self._draw()
 
     def set_enabled(self, enabled: bool) -> None:
+        """启用或禁用整个分段控件。"""
         if enabled == self._enabled:
             return
         self._enabled = enabled
@@ -255,6 +266,7 @@ class SegmentedControl(tk.Canvas):
         self._draw()
 
     def _handle_click(self, event: tk.Event) -> None:
+        """根据点击横坐标选择分段并触发回调。"""
         if not self._enabled:
             return
         index = self._index_at(event.x)
@@ -265,6 +277,7 @@ class SegmentedControl(tk.Canvas):
             self._command(value)
 
     def _handle_motion(self, event: tk.Event) -> None:
+        """记录鼠标所在分段，用于未选中项悬停反馈。"""
         if not self._enabled:
             return
         index = self._index_at(event.x)
@@ -277,6 +290,7 @@ class SegmentedControl(tk.Canvas):
         self._draw()
 
     def _draw(self) -> None:
+        """绘制轨道、选中滑块和每个选项的文字。"""
         width = max(self.winfo_width(), self._width_hint)
         height = max(self.winfo_height(), self._height_hint)
         self.delete("all")
@@ -324,6 +338,7 @@ class SegmentedControl(tk.Canvas):
             )
 
     def _index_at(self, x: float) -> int:
+        """把像素横坐标映射到分段索引，并限制在合法范围。"""
         width = max(self.winfo_width(), self._width_hint)
         segment_width = (width - 4) / len(self._segment_options)
         index = int((x - 2) / segment_width)

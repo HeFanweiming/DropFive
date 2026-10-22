@@ -1,4 +1,4 @@
-"""Pre-game, settings, and about dialogs."""
+"""开局、设置和关于我们三个模态窗口。"""
 
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ _PROJECT_URL = "https://github.com/HeFanweiming/DropFive"
 
 
 class _Dialog(tk.Toplevel, Generic[_ResultT]):
+    """统一处理居中、模态抓取、Esc 关闭和返回值。"""
+
     def __init__(
         self,
         parent: tk.Tk,
@@ -32,6 +34,7 @@ class _Dialog(tk.Toplevel, Generic[_ResultT]):
         size: tuple[int, int],
         transient: bool,
     ) -> None:
+        """初始化隐藏窗口，等布局完成后再定位显示。"""
         super().__init__(parent)
         self.withdraw()
         self.title(title)
@@ -45,6 +48,7 @@ class _Dialog(tk.Toplevel, Generic[_ResultT]):
         self.bind("<Escape>", lambda _event: self._cancel())
 
     def show(self) -> _ResultT | None:
+        """居中显示窗口并阻塞调用方，直到用户确认或取消。"""
         self.update_idletasks()
         width, height = self._size
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -57,12 +61,16 @@ class _Dialog(tk.Toplevel, Generic[_ResultT]):
         return self.result
 
     def _cancel(self) -> None:
+        """关闭窗口并返回空结果。"""
         self.result = None
         self.destroy()
 
 
 class GameSetupDialog(_Dialog[AppSettings]):
+    """正式进入棋盘前的对局配置页。"""
+
     def __init__(self, parent: tk.Tk, settings: AppSettings) -> None:
+        """用上次保存的设置作为开局默认值。"""
         super().__init__(
             parent,
             title="落五 · 开始对局",
@@ -76,6 +84,7 @@ class GameSetupDialog(_Dialog[AppSettings]):
         self._build()
 
     def _build(self) -> None:
+        """构建模式、难度、先后手和开始按钮。"""
         panel = tk.Frame(
             self,
             background=theme.SURFACE,
@@ -172,6 +181,7 @@ class GameSetupDialog(_Dialog[AppSettings]):
         selected: str,
         command,
     ) -> int:
+        """添加“标题 + 分段控件”表单行，并返回下一可用行号。"""
         tk.Label(
             parent,
             text=label,
@@ -195,17 +205,21 @@ class GameSetupDialog(_Dialog[AppSettings]):
         return row + 2
 
     def _mode_changed(self, value: str) -> None:
+        """切换模式并决定先后手控件是否可用。"""
         self._mode = GameMode(value)
         self._refresh_side_state()
 
     def _difficulty_changed(self, value: str) -> None:
+        """更新本局难度。"""
         self._difficulty = Difficulty(value)
 
     def _side_changed(self, value: str) -> None:
+        """更新玩家执黑或执白。"""
         self._human_stone = Stone(int(value))
         self._refresh_side_state()
 
     def _refresh_side_state(self) -> None:
+        """双人模式隐藏先手选择；人机模式显示 AI 先后手说明。"""
         human_vs_ai = self._mode is GameMode.HUMAN_VS_AI
         self.side_control.set_enabled(human_vs_ai)
         self.side_hint.configure(
@@ -217,6 +231,7 @@ class GameSetupDialog(_Dialog[AppSettings]):
         )
 
     def _start(self) -> None:
+        """生成不可变设置并关闭开局页。"""
         self.result = AppSettings(
             mode=self._mode,
             difficulty=self._difficulty,
@@ -227,6 +242,8 @@ class GameSetupDialog(_Dialog[AppSettings]):
 
 
 class SettingsDialog(_Dialog[AppSettings]):
+    """编辑下次启动默认值的设置窗口。"""
+
     def __init__(
         self,
         parent: tk.Tk,
@@ -234,6 +251,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         *,
         model_available: bool,
     ) -> None:
+        """接收当前设置和 ONNX 可用状态。"""
         super().__init__(
             parent,
             title="落五 · 设置",
@@ -249,6 +267,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         self._build()
 
     def _build(self) -> None:
+        """构建默认模式、难度、先后手和 AI 引擎表单。"""
         panel = tk.Frame(
             self,
             background=theme.SURFACE,
@@ -356,6 +375,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         selected: str,
         command,
     ) -> int:
+        """添加设置表单行。"""
         tk.Label(
             parent,
             text=label,
@@ -389,12 +409,14 @@ class SettingsDialog(_Dialog[AppSettings]):
         self._human_stone = Stone(int(value))
 
     def _engine_changed(self, value: str) -> None:
+        """切换自动 ONNX 增强或仅 CPU 搜索。"""
         self._use_onnx = value == "onnx"
 
     def _refresh_side_state(self) -> None:
         self.side_control.set_enabled(self._mode is GameMode.HUMAN_VS_AI)
 
     def _save(self) -> None:
+        """生成新设置并由主窗口负责持久化。"""
         self.result = AppSettings(
             mode=self._mode,
             difficulty=self._difficulty,
@@ -405,7 +427,10 @@ class SettingsDialog(_Dialog[AppSettings]):
 
 
 class AboutDialog(_Dialog[None]):
+    """展示版本、作者、项目地址和第三方模型信息。"""
+
     def __init__(self, parent: tk.Tk) -> None:
+        """创建关于窗口。"""
         super().__init__(
             parent,
             title="落五 · 关于我们",
@@ -415,6 +440,7 @@ class AboutDialog(_Dialog[None]):
         self._build()
 
     def _build(self) -> None:
+        """构建品牌介绍、技术信息和项目链接。"""
         panel = tk.Frame(
             self,
             background=theme.SURFACE,

@@ -1,10 +1,12 @@
-"""Responsive drawing measurements shared by the board renderer."""
+"""棋盘响应式绘制尺寸。"""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
 class BoardVisualScale:
+    """由格距推导出的棋子、字体、线宽等尺寸集合。"""
+
     stone_radius: float
     coordinate_font_size: int
     grid_line_width: float
@@ -14,7 +16,11 @@ class BoardVisualScale:
 
 
 def board_visual_scale(step: float) -> BoardVisualScale:
-    """Scale board details from cell spacing instead of window pixels."""
+    """按格距缩放棋盘细节。
+
+    不直接按窗口宽度缩放，是因为棋盘高度受窗口限制；使用格距可以保证
+    普通窗口、全屏和不同 DPI 下棋子与网格比例一致。
+    """
 
     return BoardVisualScale(
         stone_radius=max(8.0, step * 0.44),

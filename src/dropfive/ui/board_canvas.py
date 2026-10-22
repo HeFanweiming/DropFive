@@ -1,4 +1,4 @@
-"""Interactive Gomoku board rendered with tkinter Canvas."""
+"""使用 tkinter Canvas 绘制和交互的五子棋棋盘。"""
 
 import math
 import tkinter as tk
@@ -11,7 +11,11 @@ from dropfive.ui.metrics import BoardVisualScale, board_visual_scale
 
 
 class BoardCanvas(tk.Canvas):
-    """Render a tactile board surface and translate pointer events into cells."""
+    """棋盘视图。
+
+    职责包括响应式几何、木纹/网格/棋子绘制、鼠标坐标转换和悬停提示；
+    它不判断胜负，也不直接修改棋盘模型。
+    """
 
     def __init__(
         self,
@@ -20,6 +24,7 @@ class BoardCanvas(tk.Canvas):
         board_size: int,
         on_move: Callable[[int, int], None],
     ) -> None:
+        """创建画布并绑定缩放、点击和鼠标移动事件。"""
         super().__init__(
             master,
             background=theme.BOARD_AREA_BG,
@@ -64,6 +69,7 @@ class BoardCanvas(tk.Canvas):
         winning_cells: tuple[tuple[int, int], ...] = (),
         hint_cell: tuple[int, int] | None = None,
     ) -> None:
+        """接收不可变棋局快照并重新绘制。"""
         self._board = board
         self._last_move = last_move
         self._current_stone = current_stone
@@ -76,6 +82,7 @@ class BoardCanvas(tk.Canvas):
         self._render()
 
     def _handle_configure(self, event: tk.Event) -> None:
+        """窗口尺寸变化时重新计算棋盘几何。"""
         dimensions = (event.width, event.height)
         if dimensions == self._last_dimensions:
             return
@@ -83,6 +90,7 @@ class BoardCanvas(tk.Canvas):
         self._render()
 
     def _handle_click(self, event: tk.Event) -> None:
+        """把合法棋盘点击转换为模型行列坐标。"""
         if not self._interactive:
             return
         cell = self._nearest_cell(event.x, event.y)
@@ -90,6 +98,7 @@ class BoardCanvas(tk.Canvas):
             self._on_move(*cell)
 
     def _handle_motion(self, event: tk.Event) -> None:
+        """在空位显示当前方的落子预览。"""
         if not self._interactive:
             self._set_hover(None)
             return
@@ -109,6 +118,11 @@ class BoardCanvas(tk.Canvas):
         self._draw_hover()
 
     def _nearest_cell(self, x: float, y: float) -> tuple[int, int] | None:
+        """把像素坐标吸附到最近交叉点。
+
+        只有距离交叉点足够近时才返回格子，避免点击两个交叉点之间时产生
+        难以预测的落子。
+        """
         if self._step <= 0:
             return None
 
@@ -124,6 +138,7 @@ class BoardCanvas(tk.Canvas):
         return None
 
     def _render(self) -> None:
+        """按从底到顶的绘制顺序重建整个棋盘场景。"""
         self.delete("all")
         if not self._update_geometry():
             return
@@ -138,6 +153,7 @@ class BoardCanvas(tk.Canvas):
         self._draw_hover()
 
     def _update_geometry(self) -> bool:
+        """根据画布尺寸计算居中棋盘、网格和棋子比例。"""
         width = self.winfo_width()
         height = self.winfo_height()
         side = min(width, height)
@@ -156,6 +172,7 @@ class BoardCanvas(tk.Canvas):
         return True
 
     def _draw_board_surface(self) -> None:
+        """绘制阴影、圆角木板上层、边框和细微木纹。"""
         corner_radius = max(10.0, min(16.0, self._board_side * 0.018))
         shadow_offset = max(8.0, min(14.0, self._board_side * 0.012))
         shadow_points = self._rounded_points(
@@ -227,6 +244,7 @@ class BoardCanvas(tk.Canvas):
             )
 
     def _draw_grid(self) -> None:
+        """绘制横纵网格、坐标标签和星位。"""
         inset = self._grid_left - self._board_left
         line_end = self._grid_left + self._grid_size
         line_bottom = self._grid_top + self._grid_size
@@ -280,6 +298,7 @@ class BoardCanvas(tk.Canvas):
                 )
 
     def _draw_stones(self) -> None:
+        """按快照绘制全部棋子。"""
         radius = self._visual_scale.stone_radius
         for row in range(self._board_size):
             for col in range(self._board_size):
@@ -288,6 +307,7 @@ class BoardCanvas(tk.Canvas):
                     self._draw_stone(row, col, stone, radius)
 
     def _draw_winning_line(self) -> None:
+        """在获胜棋子之间绘制金色连线。"""
         if len(self._winning_cells) < 2:
             return
         start = self._cell_center(*self._winning_cells[0])
@@ -301,6 +321,7 @@ class BoardCanvas(tk.Canvas):
         )
 
     def _draw_winning_rings(self) -> None:
+        """为获胜棋线中的每颗棋子绘制外圈。"""
         if not self._winning_cells:
             return
         radius = self._visual_scale.stone_radius + max(2.5, self._step * 0.08)
@@ -316,6 +337,7 @@ class BoardCanvas(tk.Canvas):
             )
 
     def _draw_last_move(self) -> None:
+        """在最后一手中心绘制珊瑚色标记。"""
         if self._last_move is None:
             return
         x, y = self._cell_center(self._last_move.row, self._last_move.col)
@@ -330,6 +352,7 @@ class BoardCanvas(tk.Canvas):
         )
 
     def _draw_hint(self) -> None:
+        """绘制 AI 推荐落点的高亮圆环。"""
         if self._hint_cell is None:
             return
         row, col = self._hint_cell
@@ -362,6 +385,7 @@ class BoardCanvas(tk.Canvas):
         )
 
     def _draw_stone(self, row: int, col: int, stone: Stone, radius: float) -> None:
+        """用底色、内圈和少量高光模拟有厚度的棋子。"""
         x, y = self._cell_center(row, col)
         shadow_offset = max(1.2, radius * 0.1)
         self.create_oval(
@@ -415,6 +439,7 @@ class BoardCanvas(tk.Canvas):
         )
 
     def _draw_hover(self) -> None:
+        """绘制半透明悬停棋子，不修改模型状态。"""
         self.delete("hover")
         if not self._interactive or self._hover is None:
             return
@@ -451,6 +476,7 @@ class BoardCanvas(tk.Canvas):
         )
 
     def _cell_center(self, row: int, col: int) -> tuple[float, float]:
+        """返回模型格子的画布中心像素坐标。"""
         return (
             self._grid_left + col * self._step,
             self._grid_top + row * self._step,
@@ -464,6 +490,7 @@ class BoardCanvas(tk.Canvas):
         y1: float,
         radius: float,
     ) -> tuple[float, ...]:
+        """生成 tkinter ``smooth`` 多边形所需的圆角矩形点列。"""
         return (
             x0 + radius,
             y0,

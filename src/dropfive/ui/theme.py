@@ -1,4 +1,7 @@
-"""Shared visual constants for the desktop UI."""
+"""桌面色板和视觉常量。
+
+集中维护颜色可以避免不同对话框、按钮和棋盘出现近似但不一致的色值。
+"""
 
 APP_BG = "#EAF0ED"
 SURFACE = "#FFFFFF"

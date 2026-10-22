@@ -1,1 +1,1 @@
-"""tkinter presentation layer for DropFive."""
+"""落五的 tkinter 表现层。"""

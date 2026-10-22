@@ -1,4 +1,4 @@
-"""Main tkinter application window."""
+"""落五主窗口：组合棋盘、控制栏、设置和后台 AI 搜索。"""
 
 import contextlib
 import ctypes
@@ -59,17 +59,25 @@ _ERROR_MESSAGES = {
 
 
 def _position_label(move: Move | None) -> str:
+    """把落子坐标格式化为 ``H8`` 这类人类可读标签。"""
     if move is None:
         return "—"
     return _cell_label(move.row, move.col)
 
 
 def _cell_label(row: int, col: int) -> str:
+    """把零基行列转换为字母列 + 一基行号。"""
     return f"{chr(ord('A') + col)}{row + 1}"
 
 
 @dataclass(frozen=True, slots=True)
 class _SearchCompletion:
+    """后台线程投递回主线程的搜索结果。
+
+    完成对象携带启动时 token，主线程只有在 token 仍匹配当前搜索时才应用，
+    从而丢弃重开或切换模式前产生的旧结果。
+    """
+
     token: int
     request: SearchRequest
     result: SearchResult | None
@@ -77,7 +85,11 @@ class _SearchCompletion:
 
 
 class DropFiveWindow:
-    """Coordinate game actions and render the controller's state."""
+    """tkinter 视图与用户交互协调器。
+
+    UI 只读取 ``GameView`` 和搜索完成事件，不直接修改棋盘数组；AI 计算在
+    短生命周期线程中执行，搜索结果通过队列回到 Tk 主线程应用。
+    """
 
     def __init__(
         self,
@@ -85,18 +97,21 @@ class DropFiveWindow:
         controller: GameController | None = None,
         settings: AppSettings | None = None,
     ) -> None:
+        """创建主窗口，并加载可选 ONNX 模型与用户设置。"""
         self.root = root
         self.controller = controller or GameController(_BOARD_SIZE)
         self.settings = settings or AppSettings()
         self._message_after: str | None = None
         self._last_board_side = 0
 
+        # 一次只允许一个 AI/提示任务；token 用于识别已过期的后台结果。
         self._active_search: SearchRequest | None = None
         self._search_token = 0
         self._search_queue: queue.Queue[_SearchCompletion] = queue.Queue()
         self._poll_after: str | None = None
         self._hint_cell: tuple[int, int] | None = None
         self._closed = False
+        # ONNX 是可选项，加载失败不影响本地搜索和 UI 启动。
         self.policy_model, self._model_error = (
             load_optional_model() if self.settings.use_onnx else (None, None)
         )
@@ -114,10 +129,13 @@ class DropFiveWindow:
         self.root.bind("<Escape>", self._exit_fullscreen)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._refresh()
+        # 队列轮询固定在 Tk 主线程运行，后台线程只负责 put，不触碰控件。
         self._poll_after = self.root.after(50, self._poll_search_results)
+        # 玩家选择执白时，AI 执黑并需要在开局后自动先走。
         self.root.after(120, self._start_ai_if_needed)
 
     def _build_layout(self) -> None:
+        """搭建顶部品牌区、居中的棋盘和右侧对局面板。"""
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -170,6 +188,7 @@ class DropFiveWindow:
         self._build_sidebar()
 
     def _build_header(self, parent: tk.Misc) -> None:
+        """创建品牌标题、模式标签和版本号。"""
         header = tk.Frame(parent, background=theme.APP_BG)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         header.columnconfigure(2, weight=1)
@@ -210,6 +229,7 @@ class DropFiveWindow:
         ).grid(row=0, column=4, sticky="e")
 
     def _build_sidebar(self) -> None:
+        """创建模式、难度、状态、统计、操作按钮和辅助入口。"""
         view = self.controller.view()
 
         controls = tk.Frame(self.sidebar, background=theme.SURFACE)
@@ -462,6 +482,7 @@ class DropFiveWindow:
         ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
     def _handle_body_resize(self, event: tk.Event) -> None:
+        """保持棋盘为正方形，并让“棋盘 + 侧栏”整体居中。"""
         available_width = event.width - _SIDEBAR_WIDTH - _BOARD_GAP
         side = max(_MIN_BOARD_SIZE, min(event.height, available_width))
         if side == self._last_board_side:
@@ -470,6 +491,7 @@ class DropFiveWindow:
         self.board_canvas.configure(width=side, height=side)
 
     def _handle_move(self, row: int, col: int) -> None:
+        """接收棋盘点击，执行人类落子并根据回合启动 AI。"""
         if self._active_search is not None:
             return
         self._hint_cell = None
@@ -480,6 +502,7 @@ class DropFiveWindow:
             self._begin_search(SearchPurpose.AI_MOVE)
 
     def _undo(self) -> None:
+        """处理悔棋；AI 搜索中禁止操作以避免状态竞争。"""
         if self._active_search is not None:
             self._show_message("请等待当前计算结束。")
             return
@@ -491,6 +514,7 @@ class DropFiveWindow:
             self._start_ai_if_needed()
 
     def _restart(self) -> None:
+        """取消旧搜索、清空棋局，并在 AI 先手时自动开始新回合。"""
         self._cancel_search()
         self._hint_cell = None
         result = self.controller.restart()
@@ -499,12 +523,14 @@ class DropFiveWindow:
         self._start_ai_if_needed()
 
     def _request_hint(self) -> None:
+        """启动提示搜索；提示只高亮位置，不自动落子。"""
         if self._active_search is not None:
             return
         self._hint_cell = None
         self._begin_search(SearchPurpose.HINT)
 
     def _handle_mode_change(self, value: str) -> None:
+        """切换双人/人机模式；进行中的棋局需要用户确认后重置。"""
         mode = GameMode(value)
         current = self.controller.view()
         if mode is current.mode:
@@ -525,6 +551,7 @@ class DropFiveWindow:
         self._start_ai_if_needed()
 
     def _handle_difficulty_change(self, value: str) -> None:
+        """更新当前会话难度，并使已失效的提示结果不再适用。"""
         self._cancel_search()
         self._hint_cell = None
         self.controller.set_difficulty(Difficulty(value))
@@ -532,6 +559,7 @@ class DropFiveWindow:
         self._refresh()
 
     def _begin_search(self, purpose: SearchPurpose) -> None:
+        """创建搜索请求、锁定界面并安排后台任务启动。"""
         request = self.controller.make_search_request(purpose)
         if request is None or self._active_search is not None:
             return
@@ -542,10 +570,12 @@ class DropFiveWindow:
         self.root.after(30, self._launch_search, self._search_token, request)
 
     def _start_ai_if_needed(self) -> None:
+        """在 AI 回合且无任务运行时自动发起落子搜索。"""
         if self._active_search is None and self.controller.view().is_ai_turn:
             self._begin_search(SearchPurpose.AI_MOVE)
 
     def _launch_search(self, token: int, request: SearchRequest) -> None:
+        """在 token 仍有效时启动守护线程。"""
         if token != self._search_token or self._closed:
             return
         worker = threading.Thread(
@@ -556,6 +586,7 @@ class DropFiveWindow:
         worker.start()
 
     def _run_search(self, token: int, request: SearchRequest) -> None:
+        """后台线程入口：只计算并投递结果，绝不访问 tkinter。"""
         try:
             result = GomokuAI(
                 request.difficulty,
@@ -578,6 +609,7 @@ class DropFiveWindow:
         self._search_queue.put(completion)
 
     def _poll_search_results(self) -> None:
+        """在 Tk 主线程消费搜索结果，并定期继续轮询。"""
         self._poll_after = None
         if self._closed:
             return
@@ -601,6 +633,7 @@ class DropFiveWindow:
         self._poll_after = self.root.after(50, self._poll_search_results)
 
     def _handle_search_completion(self, completion: _SearchCompletion) -> None:
+        """应用 AI 落子或提示结果；异常时回退到备用合法点。"""
         request = completion.request
         result = completion.result
         if completion.error is not None or result is None or result.move is None:
@@ -625,10 +658,12 @@ class DropFiveWindow:
         self._show_message(f"推荐落点 {_cell_label(row, col)}")
 
     def _cancel_search(self) -> None:
+        """推进 token，使任何仍在运行的后台结果自动失效。"""
         self._search_token += 1
         self._active_search = None
 
     def _handle_action_result(self, result: ActionResult) -> None:
+        """把控制器错误码转换为用户提示。"""
         if result.ok:
             self._clear_message()
             return
@@ -636,6 +671,7 @@ class DropFiveWindow:
             self._show_message(_ERROR_MESSAGES[result.error])
 
     def _refresh(self) -> None:
+        """生成棋局快照并同步棋盘、搜索锁定和侧栏状态。"""
         view = self.controller.view()
         self.board_canvas.set_state(
             view.board,
@@ -648,6 +684,7 @@ class DropFiveWindow:
         self._update_sidebar(view)
 
     def _update_sidebar(self, view: GameView) -> None:
+        """按当前模式、搜索阶段和结果更新侧栏信息和按钮可用性。"""
         busy = self._active_search is not None
         purpose = self._active_search.purpose if self._active_search else None
         self.mode_chip.configure(text=MODE_LABELS[view.mode])
@@ -689,6 +726,7 @@ class DropFiveWindow:
         self._draw_turn_badge(view)
 
     def _draw_turn_badge(self, view: GameView) -> None:
+        """绘制当前回合或获胜方的小棋子徽标。"""
         self.turn_badge.delete("all")
         center = 21
 
@@ -720,6 +758,7 @@ class DropFiveWindow:
             )
 
     def _draw_badge_stone(self, x: float, y: float, radius: float, stone: Stone) -> None:
+        """绘制侧栏中的简化棋子。"""
         if stone is Stone.BLACK:
             fill = theme.BLACK_STONE
             outline = "#090C0D"
@@ -745,22 +784,26 @@ class DropFiveWindow:
         )
 
     def _show_message(self, message: str) -> None:
+        """显示短暂错误或操作提示，并重置自动清除计时器。"""
         if self._message_after is not None:
             self.root.after_cancel(self._message_after)
         self.message_label.configure(text=message)
         self._message_after = self.root.after(1800, self._expire_message)
 
     def _clear_message(self) -> None:
+        """立即清除提示并取消等待中的清除回调。"""
         if self._message_after is not None:
             self.root.after_cancel(self._message_after)
             self._message_after = None
         self.message_label.configure(text="")
 
     def _expire_message(self) -> None:
+        """由 after 计时器触发的提示自动清除。"""
         self._message_after = None
         self.message_label.configure(text="")
 
     def _open_settings(self) -> None:
+        """打开设置窗口，保存设置并按需重新加载 ONNX 引擎。"""
         updated = SettingsDialog(
             self.root,
             self.settings,
@@ -783,9 +826,11 @@ class DropFiveWindow:
         self._show_message("设置已保存")
 
     def _open_about(self) -> None:
+        """打开关于我们窗口。"""
         AboutDialog(self.root).show()
 
     def _refresh_engine_label(self) -> None:
+        """更新侧栏当前 AI 后端标签。"""
         text = (
             f"AI 引擎 · {self.policy_model.backend_label}"
             if self.policy_model is not None
@@ -794,27 +839,33 @@ class DropFiveWindow:
         self.engine_label.configure(text=text)
 
     def _undo_from_keyboard(self, _event: tk.Event) -> str:
+        """Ctrl+Z 快捷悔棋。"""
         self._undo()
         return "break"
 
     def _restart_from_keyboard(self, _event: tk.Event) -> str:
+        """Ctrl+N 快捷重开。"""
         self._restart()
         return "break"
 
     def _hint_from_keyboard(self, _event: tk.Event) -> str:
+        """Ctrl+H 快捷请求提示。"""
         self._request_hint()
         return "break"
 
     def _toggle_fullscreen(self, _event: tk.Event) -> str:
+        """F11 切换全屏。"""
         fullscreen = bool(self.root.attributes("-fullscreen"))
         self.root.attributes("-fullscreen", not fullscreen)
         return "break"
 
     def _exit_fullscreen(self, _event: tk.Event) -> str:
+        """Esc 退出全屏。"""
         self.root.attributes("-fullscreen", False)
         return "break"
 
     def _close(self) -> None:
+        """关闭窗口，停止轮询并让后台搜索结果失效。"""
         self._closed = True
         self._cancel_search()
         if self._poll_after is not None:
@@ -827,6 +878,7 @@ class DropFiveWindow:
 
 
 def _enable_high_dpi() -> None:
+    """在 Windows 上启用进程级高 DPI，避免字体和棋盘发虚。"""
     if sys.platform != "win32":
         return
     try:
@@ -836,6 +888,7 @@ def _enable_high_dpi() -> None:
 
 
 def main() -> None:
+    """加载设置，先展示开局页，用户确认后再创建主窗口。"""
     _enable_high_dpi()
     root = tk.Tk()
     root.withdraw()
