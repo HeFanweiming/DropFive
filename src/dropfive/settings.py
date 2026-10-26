@@ -42,6 +42,8 @@ class AppSettings:
     ai_engine: AiEngine = AiEngine.LOCAL_ONNX
     # API Key 只在本机设置文件中保存，并且不进入 dataclass 的 repr 输出。
     deepseek_api_key: str = field(default="", repr=False)
+    # 关闭后 API 失败会直接报错，不再计算本地 AI 备用落点。
+    allow_local_fallback: bool = True
 
 
 _DEFAULT_SETTINGS = AppSettings()
@@ -81,6 +83,12 @@ def load_settings(path: Path | None = None) -> AppSettings:
             human_stone=Stone(data.get("human_stone", _DEFAULT_SETTINGS.human_stone.value)),
             ai_engine=ai_engine,
             deepseek_api_key=str(data.get("deepseek_api_key", "")),
+            allow_local_fallback=bool(
+                data.get(
+                    "allow_local_fallback",
+                    _DEFAULT_SETTINGS.allow_local_fallback,
+                )
+            ),
         )
     except (TypeError, ValueError):
         return _DEFAULT_SETTINGS

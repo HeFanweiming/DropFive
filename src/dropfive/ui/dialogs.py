@@ -239,6 +239,7 @@ class GameSetupDialog(_Dialog[AppSettings]):
             human_stone=self._human_stone,
             ai_engine=self._base_settings.ai_engine,
             deepseek_api_key=self._base_settings.deepseek_api_key,
+            allow_local_fallback=self._base_settings.allow_local_fallback,
         )
         self.destroy()
 
@@ -257,7 +258,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         super().__init__(
             parent,
             title="落五 · 设置",
-            size=(560, 720),
+            size=(560, 820),
             transient=True,
         )
         self._settings = settings
@@ -266,6 +267,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         self._human_stone = settings.human_stone
         self._ai_engine = settings.ai_engine
         self._deepseek_api_key = settings.deepseek_api_key
+        self._allow_local_fallback = settings.allow_local_fallback
         self._model_available = model_available
         self._build()
 
@@ -366,6 +368,26 @@ class SettingsDialog(_Dialog[AppSettings]):
             font=("Microsoft YaHei UI", 8),
             anchor="w",
         ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        tk.Label(
+            self._api_key_frame,
+            text="失败处理",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=3, column=0, sticky="w", pady=(10, 0))
+        self._fallback_control = SegmentedControl(
+            self._api_key_frame,
+            options=[
+                ("fallback", "本地回退"),
+                ("strict", "仅报错"),
+            ],
+            selected="fallback" if self._allow_local_fallback else "strict",
+            command=self._fallback_changed,
+            background=theme.SURFACE,
+            height=34,
+        )
+        self._fallback_control.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         row += 1
 
         self.engine_hint = tk.Label(
@@ -448,6 +470,10 @@ class SettingsDialog(_Dialog[AppSettings]):
         self._ai_engine = AiEngine(value)
         self._refresh_engine_state()
 
+    def _fallback_changed(self, value: str) -> None:
+        """关闭本地回退后，API 失败将直接暴露错误。"""
+        self._allow_local_fallback = value == "fallback"
+
     def _refresh_engine_state(self) -> None:
         """根据引擎显示 API Key 字段并更新说明文字。"""
         if self._ai_engine is AiEngine.DEEPSEEK_API:
@@ -476,6 +502,7 @@ class SettingsDialog(_Dialog[AppSettings]):
             human_stone=self._human_stone,
             ai_engine=self._ai_engine,
             deepseek_api_key=self._api_key_var.get().strip(),
+            allow_local_fallback=self._allow_local_fallback,
         )
         self.destroy()
 

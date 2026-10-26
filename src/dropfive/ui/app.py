@@ -597,6 +597,8 @@ class DropFiveWindow:
                         request.stone,
                     )
                 except DeepSeekError as exc:
+                    if not self.settings.allow_local_fallback:
+                        raise
                     # API 失败时继续完成本回合，避免人机棋局永久停在 AI 回合。
                     result = GomokuAI(Difficulty.MEDIUM).choose_move(
                         request.board,
@@ -655,11 +657,33 @@ class DropFiveWindow:
         notice = completion.error
         if result is None or result.move is None:
             if request.purpose is SearchPurpose.AI_MOVE:
+                if (
+                    self.settings.ai_engine is AiEngine.DEEPSEEK_API
+                    and not self.settings.allow_local_fallback
+                ):
+                    message = notice or "DeepSeek V4.1F 调用失败。"
+                    self._show_message(message)
+                    messagebox.showerror(
+                        "DeepSeek V4.1F",
+                        message,
+                        parent=self.root,
+                    )
+                    return
                 fallback = self.controller.apply_ai_fallback(request.game_id)
                 message = "AI 搜索异常，已使用备用落点。" if fallback.ok else "AI 无法完成本回合。"
                 self._show_message(message)
             else:
-                self._show_message("暂时无法生成提示。")
+                message = notice or "暂时无法生成提示。"
+                self._show_message(message)
+                if (
+                    self.settings.ai_engine is AiEngine.DEEPSEEK_API
+                    and not self.settings.allow_local_fallback
+                ):
+                    messagebox.showerror(
+                        "DeepSeek V4.1F",
+                        message,
+                        parent=self.root,
+                    )
             return
 
         row, col = result.move
