@@ -15,6 +15,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         human_stone=Stone.WHITE,
         ai_engine=AiEngine.DEEPSEEK_API,
         deepseek_api_key="sk-test-secret",
+        allow_local_fallback=False,
     )
 
     save_settings(expected, path)
@@ -28,6 +29,7 @@ def test_legacy_onnx_setting_is_migrated(tmp_path: Path) -> None:
     path.write_text(json.dumps({"use_onnx": False}), encoding="utf-8")
 
     assert load_settings(path).ai_engine is AiEngine.LOCAL_CPU
+    assert load_settings(path).allow_local_fallback is True
 
 
 def test_invalid_settings_fall_back_to_defaults(tmp_path: Path) -> None:

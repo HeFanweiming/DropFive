@@ -92,6 +92,11 @@ $env:DEEPSEEK_API_KEY = "sk-..."
 
 默认使用官方 `https://api.deepseek.com/chat/completions` 和 `deepseek-flash` 模型（DeepSeek-V4.1-Flash），并关闭思考模式以快速返回落子 JSON。选择 API 引擎时，当前棋盘局面和执子方会发送给 DeepSeek。API Key 只保存在本机设置文件中，不进入源码、日志或 Git 提交；API 不可用时会自动回退到本地 AI。
 
+设置页还提供 DeepSeek 失败处理选项：
+
+- `本地回退`：API 失败时自动用本地 AI 完成当前回合。
+- `仅报错`：不运行任何本地备用落子，直接显示完整 API 错误，适合单独测试 API。
+
 运行质量检查：
 
 ```powershell
