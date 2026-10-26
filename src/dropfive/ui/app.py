@@ -602,7 +602,7 @@ class DropFiveWindow:
                         request.board,
                         request.stone,
                     )
-                    notice = f"DeepSeek API 调用失败，已使用本地 AI：{exc}"
+                    notice = f"DeepSeek V4.1F 调用失败，已使用本地 AI：{exc}"
             else:
                 result = GomokuAI(
                     request.difficulty,
@@ -715,7 +715,7 @@ class DropFiveWindow:
         if purpose is SearchPurpose.AI_MOVE:
             status = "AI 思考中"
             note = (
-                "DeepSeek API · 等待响应"
+                "V4.1F · 等待响应"
                 if self.settings.ai_engine is AiEngine.DEEPSEEK_API
                 else f"{DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
             )
@@ -737,7 +737,7 @@ class DropFiveWindow:
             note = "黑方先行" if view.move_count == 0 else "对局进行中"
             if purpose is SearchPurpose.HINT:
                 note = (
-                    "DeepSeek API · 分析提示"
+                    "V4.1F · 分析提示"
                     if self.settings.ai_engine is AiEngine.DEEPSEEK_API
                     else "正在分析提示"
                 )
@@ -868,7 +868,7 @@ class DropFiveWindow:
     def _engine_label_text(self) -> str:
         """返回当前设置和模型状态对应的引擎标签。"""
         if self.settings.ai_engine is AiEngine.DEEPSEEK_API:
-            return "AI 引擎 · DeepSeek API"
+            return "AI 引擎 · DeepSeek V4.1 Flash"
         if self.policy_model is not None:
             return f"AI 引擎 · {self.policy_model.backend_label}"
         return "AI 引擎 · 本地搜索 CPU"

@@ -28,6 +28,7 @@ def test_deepseek_response_is_parsed_into_legal_move() -> None:
     assert result.move == (7, 8)
     assert result.reason == "deepseek_api"
     assert len(captured) == 1
+    assert captured[0]["model"] == "deepseek-flash"
     assert "sk-test-secret" not in str(captured[0])
     prompt = captured[0]["messages"][1]["content"]
     assert "当前轮到白方" in prompt

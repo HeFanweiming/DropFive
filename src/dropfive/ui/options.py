@@ -31,13 +31,13 @@ DIFFICULTY_OPTIONS = [
 AI_ENGINE_LABELS = {
     AiEngine.LOCAL_ONNX: "本地 ONNX",
     AiEngine.LOCAL_CPU: "本地 CPU",
-    AiEngine.DEEPSEEK_API: "DeepSeek API",
+    AiEngine.DEEPSEEK_API: "DeepSeek V4.1F",
 }
 
 AI_ENGINE_OPTIONS = [
     (AiEngine.LOCAL_ONNX.value, "本地 ONNX"),
     (AiEngine.LOCAL_CPU.value, "本地 CPU"),
-    (AiEngine.DEEPSEEK_API.value, "DeepSeek API"),
+    (AiEngine.DEEPSEEK_API.value, "V4.1F"),
 ]
 
 SIDE_OPTIONS = [
