@@ -115,6 +115,7 @@ class DeepSeekStrategy:
         """构造 Chat Completions 请求体。"""
 
         prompt = self._build_prompt(snapshot, stone)
+        legal_moves = self._legal_move_labels(snapshot)
         messages: list[dict[str, str]] = [
             {
                 "role": "system",
@@ -148,7 +149,31 @@ class DeepSeekStrategy:
             # 占满额度并导致 content 为空或 JSON 被截断。
             "thinking": {"type": "disabled"},
             "reasoning_effort": "none",
-            "response_format": {"type": "json_object"},
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "select_move",
+                        "description": "Select one legal Gomoku move.",
+                        "strict": True,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "move": {
+                                    "type": "string",
+                                    "enum": legal_moves,
+                                }
+                            },
+                            "required": ["move"],
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            ],
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "select_move"},
+            },
         }
 
     @staticmethod
@@ -170,12 +195,7 @@ class DeepSeekStrategy:
                 )
             )
         side = "黑方" if stone is Stone.BLACK else "白方"
-        legal_moves = " ".join(
-            f"{chr(ord('A') + col)}{row + 1}"
-            for row in range(size)
-            for col in range(size)
-            if snapshot[row][col] is Stone.EMPTY
-        )
+        legal_moves = " ".join(DeepSeekStrategy._legal_move_labels(snapshot))
         return (
             f"{size}x{size} 五子棋，无禁手，当前轮到{side}。\n"
             "X 表示当前方，O 表示对手，. 表示空位。\n"
@@ -184,6 +204,19 @@ class DeepSeekStrategy:
             "必须从合法落点中选择，优先立即获胜或封堵对手五连。"
             '只返回 JSON，例如 {"move": "H8"}。'
         )
+
+    @staticmethod
+    def _legal_move_labels(
+        snapshot: tuple[tuple[Stone, ...], ...],
+    ) -> list[str]:
+        """按行优先顺序生成所有合法 A–O/1–15 坐标。"""
+
+        return [
+            f"{chr(ord('A') + col)}{row + 1}"
+            for row in range(len(snapshot))
+            for col in range(len(snapshot))
+            if snapshot[row][col] is Stone.EMPTY
+        ]
 
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """调用网络或测试 transport，并统一处理 JSON 响应。"""
@@ -238,6 +271,13 @@ class DeepSeekStrategy:
         message = first.get("message")
         if not isinstance(message, dict):
             raise DeepSeekResponseError("DeepSeek 响应缺少 message")
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            first_call = tool_calls[0]
+            function = first_call.get("function") if isinstance(first_call, dict) else None
+            arguments = function.get("arguments") if isinstance(function, dict) else None
+            if isinstance(arguments, str) and arguments.strip():
+                return arguments
         finish_reason = first.get("finish_reason")
         content = message.get("content")
         if not isinstance(content, str) or not content.strip():

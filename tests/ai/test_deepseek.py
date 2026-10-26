@@ -32,6 +32,10 @@ def test_deepseek_response_is_parsed_into_legal_move() -> None:
     assert captured[0]["thinking"] == {"type": "disabled"}
     assert captured[0]["reasoning_effort"] == "none"
     assert captured[0]["max_tokens"] == 512
+    assert captured[0]["tool_choice"]["function"]["name"] == "select_move"
+    legal_enum = captured[0]["tools"][0]["function"]["parameters"]["properties"]["move"]["enum"]
+    assert "H8" not in legal_enum
+    assert "I8" in legal_enum
     assert "sk-test-secret" not in str(captured[0])
     prompt = captured[0]["messages"][1]["content"]
     assert "当前轮到白方" in prompt
@@ -95,3 +99,34 @@ def test_coordinate_move_and_one_repair_retry_are_supported() -> None:
     assert len(calls) == 2
     repair_messages = calls[1]["messages"]
     assert "上一步非法" in repair_messages[-1]["content"]
+
+
+def test_tool_call_response_is_accepted() -> None:
+    board = Board()
+    board.place(7, 7, Stone.BLACK)
+    strategy = DeepSeekStrategy(
+        "sk-test",
+        transport=lambda _payload: {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "select_move",
+                                    "arguments": '{"move": "I8"}',
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+    )
+
+    result = strategy.choose_move(board.snapshot(), Stone.WHITE)
+
+    assert result.move == (7, 8)
