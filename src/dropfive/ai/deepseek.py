@@ -16,7 +16,7 @@ from dropfive.ai.search import SearchResult
 from dropfive.model.board import Board
 from dropfive.model.stone import Stone
 
-_DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+_DEFAULT_BASE_URL = "https://api.deepseek.com"
 _DEFAULT_MODEL = "deepseek-flash"
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -114,8 +114,12 @@ class DeepSeekStrategy:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
-            "max_tokens": 200,
+            "max_tokens": 512,
             "stream": False,
+            # 五子棋只需要一个短 JSON；关闭默认思考模式可避免思考 token
+            # 占满额度并导致 content 为空或 JSON 被截断。
+            "thinking": {"type": "disabled"},
+            "reasoning_effort": "none",
             "response_format": {"type": "json_object"},
         }
 
@@ -167,11 +171,12 @@ class DeepSeekStrategy:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
+            detail = self._http_error_detail(exc)
             if exc.code in (401, 403):
                 raise DeepSeekError("DeepSeek API Key 无效或没有权限") from exc
             if exc.code == 429:
                 raise DeepSeekError("DeepSeek API 请求过于频繁，请稍后重试") from exc
-            raise DeepSeekError(f"DeepSeek API 请求失败（HTTP {exc.code}）") from exc
+            raise DeepSeekError(f"DeepSeek API 请求失败（HTTP {exc.code}）{detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise DeepSeekError("无法连接 DeepSeek API，请检查网络") from exc
 
@@ -196,10 +201,28 @@ class DeepSeekStrategy:
         message = first.get("message")
         if not isinstance(message, dict):
             raise DeepSeekError("DeepSeek 响应缺少 message")
+        finish_reason = first.get("finish_reason")
         content = message.get("content")
         if not isinstance(content, str) or not content.strip():
+            if finish_reason == "length":
+                raise DeepSeekError("DeepSeek 输出达到 token 上限，未生成完整落点")
             raise DeepSeekError("DeepSeek 未返回落子内容")
         return content
+
+    @staticmethod
+    def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+        """提取官方错误响应中的简短 message，便于定位参数问题。"""
+
+        try:
+            body = exc.read().decode("utf-8")
+            data = json.loads(body)
+            error = data.get("error") if isinstance(data, dict) else None
+            message = error.get("message") if isinstance(error, dict) else None
+            if isinstance(message, str) and message.strip():
+                return f"：{message.strip()[:300]}"
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        return ""
 
     @staticmethod
     def _parse_move(
