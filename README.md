@@ -99,4 +99,6 @@ pytest
 
 ## 许可证
 
-许可证尚未选定。在所有者明确选择许可证之前，本仓库内容不授予额外的复制或分发许可。
+本项目源代码采用 [MIT License](LICENSE)。
+
+可选的 ONNX 模型来自 `whyb/Gomoku-AI`，其模型和上游内容继续遵守 BSD-3-Clause 许可证。相关声明保存在 [models/LICENSE-whyb-Gomoku-AI.txt](models/LICENSE-whyb-Gomoku-AI.txt)。

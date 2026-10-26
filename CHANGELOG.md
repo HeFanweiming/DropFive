@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 项目源代码采用 MIT License，并提供独立的第三方模型许可证说明。
+
 ### Planned
 
 - 更丰富的 AI 棋力基准和长期对照测试。
