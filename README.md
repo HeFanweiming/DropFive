@@ -75,6 +75,8 @@ python -m dropfive
 python -m pip install -e ".[onnx]"
 ```
 
+使用该命令时需要特殊的网络环境，或者向AI询问替换命令为国内镜像版本
+
 将兼容模型放入 `models/` 即可自动启用。模型文件不会提交到 Git；Provider、输入输出格式和 GPU 安装方式见 [models/README.md](models/README.md)。
 
 运行质量检查：
