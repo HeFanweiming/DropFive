@@ -16,8 +16,8 @@ from dropfive.ai.search import SearchResult
 from dropfive.model.board import Board
 from dropfive.model.stone import Stone
 
-_DEFAULT_BASE_URL = "https://api.deepseek.com"
-_DEFAULT_MODEL = "deepseek-chat"
+_DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+_DEFAULT_MODEL = "deepseek-flash"
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 
 

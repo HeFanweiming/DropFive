@@ -452,7 +452,7 @@ class SettingsDialog(_Dialog[AppSettings]):
         """根据引擎显示 API Key 字段并更新说明文字。"""
         if self._ai_engine is AiEngine.DEEPSEEK_API:
             self._api_key_frame.grid()
-            hint = "当前棋盘会发送至 DeepSeek；失败时回退本地 AI"
+            hint = "当前棋盘会发送至 DeepSeek V4.1F；失败时回退本地 AI"
         else:
             self._api_key_frame.grid_remove()
             if self._ai_engine is AiEngine.LOCAL_ONNX:
@@ -533,7 +533,7 @@ class AboutDialog(_Dialog[None]):
 
         info = (
             "作者  HeFanweiming\n"
-            "AI  Alpha-Beta · VCF · ONNX / DeepSeek API 可选增强\n"
+            "AI  Alpha-Beta · VCF · ONNX / DeepSeek V4.1F 可选增强\n"
             "模型  whyb/Gomoku-AI · BSD-3-Clause\n"
             "界面  Python + tkinter"
         )

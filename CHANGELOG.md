@@ -12,7 +12,7 @@
 
 ### Added
 
-- 支持 DeepSeek Chat Completions API 人机对弈。
+- 支持 DeepSeek-V4.1-Flash（`deepseek-flash`）人机对弈。
 - 设置窗口新增本地 ONNX、本地 CPU、DeepSeek API 三种引擎切换。
 - 设置窗口新增 DeepSeek API Key 输入与本地持久化。
 - API 调用失败时自动回退本地 AI，保证棋局继续。
