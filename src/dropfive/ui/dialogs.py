@@ -10,9 +10,10 @@ from dropfive import __version__
 from dropfive.ai.difficulty import Difficulty
 from dropfive.controller.game_controller import GameMode
 from dropfive.model.stone import Stone
-from dropfive.settings import AppSettings
+from dropfive.settings import AiEngine, AppSettings
 from dropfive.ui import theme
 from dropfive.ui.options import (
+    AI_ENGINE_OPTIONS,
     DIFFICULTY_OPTIONS,
     MODE_OPTIONS,
     SIDE_OPTIONS,
@@ -236,7 +237,8 @@ class GameSetupDialog(_Dialog[AppSettings]):
             mode=self._mode,
             difficulty=self._difficulty,
             human_stone=self._human_stone,
-            use_onnx=self._base_settings.use_onnx,
+            ai_engine=self._base_settings.ai_engine,
+            deepseek_api_key=self._base_settings.deepseek_api_key,
         )
         self.destroy()
 
@@ -255,14 +257,15 @@ class SettingsDialog(_Dialog[AppSettings]):
         super().__init__(
             parent,
             title="落五 · 设置",
-            size=(560, 660),
+            size=(560, 720),
             transient=True,
         )
         self._settings = settings
         self._mode = settings.mode
         self._difficulty = settings.difficulty
         self._human_stone = settings.human_stone
-        self._use_onnx = settings.use_onnx
+        self._ai_engine = settings.ai_engine
+        self._deepseek_api_key = settings.deepseek_api_key
         self._model_available = model_available
         self._build()
 
@@ -326,17 +329,48 @@ class SettingsDialog(_Dialog[AppSettings]):
             panel,
             row,
             "AI 引擎",
-            [("onnx", "ONNX 增强"), ("cpu", "仅 CPU 搜索")],
-            "onnx" if self._use_onnx else "cpu",
+            AI_ENGINE_OPTIONS,
+            self._ai_engine.value,
             self._engine_changed,
         )
+        self._api_key_frame = tk.Frame(panel, background=theme.SURFACE)
+        self._api_key_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self._api_key_frame.columnconfigure(0, weight=1)
+        tk.Label(
+            self._api_key_frame,
+            text="DeepSeek API Key",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self._api_key_var = tk.StringVar(self, value=self._deepseek_api_key)
+        tk.Entry(
+            self._api_key_frame,
+            textvariable=self._api_key_var,
+            show="•",
+            background=theme.SURFACE_ALT,
+            foreground=theme.INK,
+            insertbackground=theme.INK,
+            relief="flat",
+            highlightbackground=theme.BORDER,
+            highlightcolor=theme.ACCENT,
+            highlightthickness=1,
+            font=("Consolas", 10),
+        ).grid(row=1, column=0, sticky="ew", pady=(5, 0), ipady=7)
+        tk.Label(
+            self._api_key_frame,
+            text="仅保存在本机；也可使用 DEEPSEEK_API_KEY 环境变量",
+            background=theme.SURFACE,
+            foreground=theme.MUTED,
+            font=("Microsoft YaHei UI", 8),
+            anchor="w",
+        ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        row += 1
+
         self.engine_hint = tk.Label(
             panel,
-            text=(
-                "ONNX 模型已就绪，自动选择 GPU/CPU Provider"
-                if self._model_available
-                else "未检测到可用 ONNX 模型，将自动使用 CPU 搜索"
-            ),
+            text="",
             background=theme.SURFACE,
             foreground=theme.MUTED,
             font=("Microsoft YaHei UI", 8),
@@ -365,6 +399,7 @@ class SettingsDialog(_Dialog[AppSettings]):
             height=40,
         ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
         self._refresh_side_state()
+        self._refresh_engine_state()
 
     def _add_control(
         self,
@@ -409,8 +444,26 @@ class SettingsDialog(_Dialog[AppSettings]):
         self._human_stone = Stone(int(value))
 
     def _engine_changed(self, value: str) -> None:
-        """切换自动 ONNX 增强或仅 CPU 搜索。"""
-        self._use_onnx = value == "onnx"
+        """切换本地 ONNX、本地 CPU 或 DeepSeek API。"""
+        self._ai_engine = AiEngine(value)
+        self._refresh_engine_state()
+
+    def _refresh_engine_state(self) -> None:
+        """根据引擎显示 API Key 字段并更新说明文字。"""
+        if self._ai_engine is AiEngine.DEEPSEEK_API:
+            self._api_key_frame.grid()
+            hint = "当前棋盘会发送至 DeepSeek；失败时回退本地 AI"
+        else:
+            self._api_key_frame.grid_remove()
+            if self._ai_engine is AiEngine.LOCAL_ONNX:
+                hint = (
+                    "ONNX 模型已就绪，自动选择 GPU/CPU Provider"
+                    if self._model_available
+                    else "未检测到可用 ONNX 模型，将自动使用 CPU 搜索"
+                )
+            else:
+                hint = "仅使用本地搜索，不发起网络请求"
+        self.engine_hint.configure(text=hint)
 
     def _refresh_side_state(self) -> None:
         self.side_control.set_enabled(self._mode is GameMode.HUMAN_VS_AI)
@@ -421,7 +474,8 @@ class SettingsDialog(_Dialog[AppSettings]):
             mode=self._mode,
             difficulty=self._difficulty,
             human_stone=self._human_stone,
-            use_onnx=self._use_onnx,
+            ai_engine=self._ai_engine,
+            deepseek_api_key=self._api_key_var.get().strip(),
         )
         self.destroy()
 
@@ -479,7 +533,7 @@ class AboutDialog(_Dialog[None]):
 
         info = (
             "作者  HeFanweiming\n"
-            "AI  Alpha-Beta · VCF · ONNX 可选增强\n"
+            "AI  Alpha-Beta · VCF · ONNX / DeepSeek API 可选增强\n"
             "模型  whyb/Gomoku-AI · BSD-3-Clause\n"
             "界面  Python + tkinter"
         )

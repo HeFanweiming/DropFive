@@ -2,6 +2,7 @@
 
 from dropfive.ai.difficulty import Difficulty
 from dropfive.controller.game_controller import GameMode
+from dropfive.settings import AiEngine
 
 MODE_LABELS = {
     GameMode.TWO_PLAYER: "双人对战",
@@ -25,6 +26,18 @@ DIFFICULTY_OPTIONS = [
     (Difficulty.MEDIUM.value, "普通"),
     (Difficulty.HARD.value, "困难"),
     (Difficulty.MASTER.value, "大师"),
+]
+
+AI_ENGINE_LABELS = {
+    AiEngine.LOCAL_ONNX: "本地 ONNX",
+    AiEngine.LOCAL_CPU: "本地 CPU",
+    AiEngine.DEEPSEEK_API: "DeepSeek API",
+}
+
+AI_ENGINE_OPTIONS = [
+    (AiEngine.LOCAL_ONNX.value, "本地 ONNX"),
+    (AiEngine.LOCAL_CPU.value, "本地 CPU"),
+    (AiEngine.DEEPSEEK_API.value, "DeepSeek API"),
 ]
 
 SIDE_OPTIONS = [

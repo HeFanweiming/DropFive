@@ -2,6 +2,7 @@
 
 import contextlib
 import ctypes
+import os
 import queue
 import sys
 import threading
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 from tkinter import messagebox
 
 from dropfive import __version__
+from dropfive.ai.deepseek import DeepSeekError, DeepSeekStrategy
 from dropfive.ai.difficulty import Difficulty
 from dropfive.ai.onnx_policy import load_optional_model
 from dropfive.ai.search import SearchResult
@@ -26,7 +28,7 @@ from dropfive.controller.game_controller import (
 from dropfive.model.game import GameResult
 from dropfive.model.history import Move
 from dropfive.model.stone import Stone
-from dropfive.settings import AppSettings, load_settings, save_settings
+from dropfive.settings import AiEngine, AppSettings, load_settings, save_settings
 from dropfive.ui import theme
 from dropfive.ui.board_canvas import BoardCanvas
 from dropfive.ui.dialogs import AboutDialog, GameSetupDialog, SettingsDialog
@@ -113,7 +115,7 @@ class DropFiveWindow:
         self._closed = False
         # ONNX 是可选项，加载失败不影响本地搜索和 UI 启动。
         self.policy_model, self._model_error = (
-            load_optional_model() if self.settings.use_onnx else (None, None)
+            load_optional_model() if self.settings.ai_engine.use_onnx else (None, None)
         )
 
         self.root.title("落五 DropFive")
@@ -436,14 +438,9 @@ class DropFiveWindow:
             padx=8,
             pady=4,
         ).grid(row=0, column=1, sticky="e")
-        engine_text = (
-            f"AI 引擎 · {self.policy_model.backend_label}"
-            if self.policy_model is not None
-            else "AI 引擎 · 本地搜索 CPU"
-        )
         self.engine_label = tk.Label(
             footer,
-            text=engine_text,
+            text=self._engine_label_text(),
             background=theme.SURFACE,
             foreground=theme.MUTED,
             font=("Segoe UI", 8),
@@ -588,10 +585,29 @@ class DropFiveWindow:
     def _run_search(self, token: int, request: SearchRequest) -> None:
         """后台线程入口：只计算并投递结果，绝不访问 tkinter。"""
         try:
-            result = GomokuAI(
-                request.difficulty,
-                policy_model=self.policy_model,
-            ).choose_move(request.board, request.stone)
+            notice = None
+            if self.settings.ai_engine is AiEngine.DEEPSEEK_API:
+                api_key = self.settings.deepseek_api_key.strip() or os.environ.get(
+                    "DEEPSEEK_API_KEY",
+                    "",
+                )
+                try:
+                    result = DeepSeekStrategy(api_key).choose_move(
+                        request.board,
+                        request.stone,
+                    )
+                except DeepSeekError as exc:
+                    # API 失败时继续完成本回合，避免人机棋局永久停在 AI 回合。
+                    result = GomokuAI(Difficulty.MEDIUM).choose_move(
+                        request.board,
+                        request.stone,
+                    )
+                    notice = f"DeepSeek API 调用失败，已使用本地 AI：{exc}"
+            else:
+                result = GomokuAI(
+                    request.difficulty,
+                    policy_model=self.policy_model,
+                ).choose_move(request.board, request.stone)
         except Exception as exc:  # The worker boundary must report failures to the UI.
             completion = _SearchCompletion(
                 token=token,
@@ -604,7 +620,7 @@ class DropFiveWindow:
                 token=token,
                 request=request,
                 result=result,
-                error=None,
+                error=notice,
             )
         self._search_queue.put(completion)
 
@@ -636,7 +652,8 @@ class DropFiveWindow:
         """应用 AI 落子或提示结果；异常时回退到备用合法点。"""
         request = completion.request
         result = completion.result
-        if completion.error is not None or result is None or result.move is None:
+        notice = completion.error
+        if result is None or result.move is None:
             if request.purpose is SearchPurpose.AI_MOVE:
                 fallback = self.controller.apply_ai_fallback(request.game_id)
                 message = "AI 搜索异常，已使用备用落点。" if fallback.ok else "AI 无法完成本回合。"
@@ -652,10 +669,16 @@ class DropFiveWindow:
                 fallback = self.controller.apply_ai_fallback(request.game_id)
                 if not fallback.ok:
                     self._show_message("AI 无法完成本回合。")
+            elif action.ok and notice:
+                self._show_message(notice)
             return
 
         self._hint_cell = (row, col)
-        self._show_message(f"推荐落点 {_cell_label(row, col)}")
+        self._show_message(
+            f"{notice}；推荐落点 {_cell_label(row, col)}"
+            if notice
+            else f"推荐落点 {_cell_label(row, col)}"
+        )
 
     def _cancel_search(self) -> None:
         """推进 token，使任何仍在运行的后台结果自动失效。"""
@@ -691,7 +714,11 @@ class DropFiveWindow:
 
         if purpose is SearchPurpose.AI_MOVE:
             status = "AI 思考中"
-            note = f"{DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
+            note = (
+                "DeepSeek API · 等待响应"
+                if self.settings.ai_engine is AiEngine.DEEPSEEK_API
+                else f"{DIFFICULTY_LABELS[view.difficulty]} · 正在计算"
+            )
             status_color = theme.ACCENT
         elif view.result is GameResult.BLACK_WIN:
             status = "黑方获胜"
@@ -709,7 +736,11 @@ class DropFiveWindow:
             status = f"{_STONE_LABELS[view.current_stone]}回合"
             note = "黑方先行" if view.move_count == 0 else "对局进行中"
             if purpose is SearchPurpose.HINT:
-                note = "正在分析提示"
+                note = (
+                    "DeepSeek API · 分析提示"
+                    if self.settings.ai_engine is AiEngine.DEEPSEEK_API
+                    else "正在分析提示"
+                )
             status_color = theme.INK
 
         self.status_label.configure(text=status, foreground=status_color)
@@ -817,10 +848,11 @@ class DropFiveWindow:
             self._show_message(f"设置保存失败：{exc}")
             return
 
-        if updated.use_onnx != self.settings.use_onnx:
-            self.policy_model, self._model_error = (
-                load_optional_model() if updated.use_onnx else (None, None)
-            )
+        if updated.ai_engine is AiEngine.LOCAL_ONNX:
+            if self.policy_model is None or not self.settings.ai_engine.use_onnx:
+                self.policy_model, self._model_error = load_optional_model()
+        else:
+            self.policy_model, self._model_error = (None, None)
         self.settings = updated
         self._refresh_engine_label()
         self._show_message("设置已保存")
@@ -831,12 +863,15 @@ class DropFiveWindow:
 
     def _refresh_engine_label(self) -> None:
         """更新侧栏当前 AI 后端标签。"""
-        text = (
-            f"AI 引擎 · {self.policy_model.backend_label}"
-            if self.policy_model is not None
-            else "AI 引擎 · 本地搜索 CPU"
-        )
-        self.engine_label.configure(text=text)
+        self.engine_label.configure(text=self._engine_label_text())
+
+    def _engine_label_text(self) -> str:
+        """返回当前设置和模型状态对应的引擎标签。"""
+        if self.settings.ai_engine is AiEngine.DEEPSEEK_API:
+            return "AI 引擎 · DeepSeek API"
+        if self.policy_model is not None:
+            return f"AI 引擎 · {self.policy_model.backend_label}"
+        return "AI 引擎 · 本地搜索 CPU"
 
     def _undo_from_keyboard(self, _event: tk.Event) -> str:
         """Ctrl+Z 快捷悔棋。"""

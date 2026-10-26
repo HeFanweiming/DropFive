@@ -4,14 +4,14 @@
 
 ## 当前状态
 
-`v0.5.0` 已补齐开局先后手选择、持久化设置、关于页面、双人/人机对战和可选 ONNX 增强。
+`v0.6.0` 已补齐开局设置、可选 ONNX 增强，并支持通过 DeepSeek API 进行人机对弈。
 
 ## 已实现功能
 
 - 15×15 无禁手五子棋。
 - 双人对战、人机对战和黑白回合切换。
 - 开局前选择先手执黑或后手执白，AI 先手时自动落子。
-- 保存默认模式、难度、先后手和 ONNX/CPU 引擎设置。
+- 保存默认模式、难度、先后手和本地/DeepSeek API 引擎设置。
 - 设置窗口与关于我们页面。
 - 简单、普通、困难、大师四档搜索型 AI。
 - Alpha-Beta 搜索、棋型评分、立即获胜与立即封堵。
@@ -20,6 +20,8 @@
 - 防守型强制搜索与大师档五秒深度搜索。
 - 后台 AI 计算、过期结果保护和 AI 回合输入锁定。
 - 可选 ONNX 策略先验、GPU Provider 自动检测和 CPU 回退。
+- DeepSeek Chat Completions API 人机对弈与 API Key 设置。
+- API 失败时自动使用本地 AI 完成当前回合。
 - 落子提示与人机模式双步悔棋。
 - 横、竖及两条斜线方向的胜负判断。
 - 满盘和棋判断。
@@ -38,6 +40,7 @@
 - Python 3.11 或 3.12
 - tkinter
 - onnxruntime（可选）
+- DeepSeek API（可选，需网络和 API Key）
 - pytest
 - Ruff
 
@@ -78,6 +81,16 @@ python -m pip install -e ".[onnx]"
 使用该命令时需要特殊的网络环境，或者向AI询问替换命令为国内镜像版本
 
 将兼容模型放入 `models/` 即可自动启用。模型文件不会提交到 Git；Provider、输入输出格式和 GPU 安装方式见 [models/README.md](models/README.md)。
+
+## DeepSeek API
+
+在设置窗口选择 `DeepSeek API`，填写 API Key 后即可进行人机对弈。也可以不保存 Key，改用环境变量：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "sk-..."
+```
+
+默认使用 `https://api.deepseek.com/chat/completions` 和 `deepseek-chat` 模型。选择 API 引擎时，当前棋盘局面和执子方会发送给 DeepSeek。API Key 只保存在本机设置文件中，不进入源码、日志或 Git 提交；API 不可用时会自动回退到本地 AI。
 
 运行质量检查：
 

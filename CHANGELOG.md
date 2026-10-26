@@ -4,13 +4,23 @@
 
 ## [Unreleased]
 
-### Changed
-
-- 项目源代码采用 MIT License，并提供独立的第三方模型许可证说明。
-
 ### Planned
 
 - 更丰富的 AI 棋力基准和长期对照测试。
+
+## [0.6.0] - 2026-10-26
+
+### Added
+
+- 支持 DeepSeek Chat Completions API 人机对弈。
+- 设置窗口新增本地 ONNX、本地 CPU、DeepSeek API 三种引擎切换。
+- 设置窗口新增 DeepSeek API Key 输入与本地持久化。
+- API 调用失败时自动回退本地 AI，保证棋局继续。
+- DeepSeek 调用前保留本地立即获胜与立即封堵战术检查。
+
+### Changed
+
+- 项目源代码采用 MIT License，并提供独立的第三方模型许可证说明。
 
 ## [0.5.0] - 2026-10-18
 
