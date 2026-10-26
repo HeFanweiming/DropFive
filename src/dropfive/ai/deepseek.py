@@ -25,6 +25,10 @@ class DeepSeekError(RuntimeError):
     """DeepSeek 调用、返回格式或落点校验失败。"""
 
 
+class DeepSeekResponseError(DeepSeekError):
+    """模型返回无法解析或不是合法落点，可进行一次纠错重试。"""
+
+
 class DeepSeekStrategy:
     """使用 DeepSeek API 产生落点，并保留本地战术兜底。
 
@@ -88,32 +92,56 @@ class DeepSeekStrategy:
             raise DeepSeekError("未配置 DeepSeek API Key，请在设置中填写或设置 DEEPSEEK_API_KEY")
 
         payload = self._build_payload(snapshot, stone)
-        response = self._request(payload)
-        content = self._extract_content(response)
-        move = self._parse_move(content, snapshot)
+        content = self._extract_content(self._request(payload))
+        try:
+            move = self._parse_move(content, snapshot)
+        except DeepSeekResponseError as first_error:
+            repair_payload = self._build_payload(
+                snapshot,
+                stone,
+                repair=(content, str(first_error)),
+            )
+            repaired_content = self._extract_content(self._request(repair_payload))
+            move = self._parse_move(repaired_content, snapshot)
         return self._result(move, started, "deepseek_api", 0)
 
     def _build_payload(
         self,
         snapshot: tuple[tuple[Stone, ...], ...],
         stone: Stone,
+        *,
+        repair: tuple[str, str] | None = None,
     ) -> dict[str, Any]:
         """构造 Chat Completions 请求体。"""
 
         prompt = self._build_prompt(snapshot, stone)
+        messages: list[dict[str, str]] = [
+            {
+                "role": "system",
+                "content": (
+                    "你是五子棋落子引擎。只返回 JSON，不要解释。"
+                    '格式必须是 {"move": "H8"}，其中列使用 A-O，行使用 1-15。'
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        if repair is not None:
+            previous, reason = repair
+            messages.extend(
+                [
+                    {"role": "assistant", "content": previous},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"上一步非法：{reason}。必须从合法落点列表中选择一个空位，只返回 JSON。"
+                        ),
+                    },
+                ]
+            )
         return {
             "model": self._model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是五子棋落子引擎。只返回 JSON，不要解释。"
-                        '格式必须是 {"row": 0到14的整数, "col": 0到14的整数}。'
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
+            "messages": messages,
+            "temperature": 0,
             "max_tokens": 512,
             "stream": False,
             # 五子棋只需要一个短 JSON；关闭默认思考模式可避免思考 token
@@ -131,21 +159,30 @@ class DeepSeekStrategy:
         """把棋盘转换为紧凑、无歧义的文本局面。"""
 
         size = len(snapshot)
+        column_header = "   " + " ".join(chr(ord("A") + col) for col in range(size))
         rows: list[str] = []
-        for row in snapshot:
+        for row_index, row in enumerate(snapshot):
             rows.append(
-                "".join(
+                f"{row_index + 1:>2} "
+                + " ".join(
                     "X" if cell is stone else "O" if cell is not Stone.EMPTY else "."
                     for cell in row
                 )
             )
         side = "黑方" if stone is Stone.BLACK else "白方"
+        legal_moves = " ".join(
+            f"{chr(ord('A') + col)}{row + 1}"
+            for row in range(size)
+            for col in range(size)
+            if snapshot[row][col] is Stone.EMPTY
+        )
         return (
             f"{size}x{size} 五子棋，无禁手，当前轮到{side}。\n"
             "X 表示当前方，O 表示对手，. 表示空位。\n"
-            "坐标使用零基 row/col，从 0 开始。\n"
-            + "\n".join(f"{index}: {line}" for index, line in enumerate(rows))
-            + "\n请选择一个空位，优先立即获胜或封堵对手五连。只返回 JSON。"
+            "列坐标从左到右是 A-O，行坐标从上到下是 1-15。\n"
+            f"{column_header}\n" + "\n".join(rows) + f"\n合法落点：{legal_moves}\n"
+            "必须从合法落点中选择，优先立即获胜或封堵对手五连。"
+            '只返回 JSON，例如 {"move": "H8"}。'
         )
 
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -200,13 +237,13 @@ class DeepSeekStrategy:
             raise DeepSeekError("DeepSeek choices 格式错误")
         message = first.get("message")
         if not isinstance(message, dict):
-            raise DeepSeekError("DeepSeek 响应缺少 message")
+            raise DeepSeekResponseError("DeepSeek 响应缺少 message")
         finish_reason = first.get("finish_reason")
         content = message.get("content")
         if not isinstance(content, str) or not content.strip():
             if finish_reason == "length":
-                raise DeepSeekError("DeepSeek 输出达到 token 上限，未生成完整落点")
-            raise DeepSeekError("DeepSeek 未返回落子内容")
+                raise DeepSeekResponseError("DeepSeek 输出达到 token 上限，未生成完整落点")
+            raise DeepSeekResponseError("DeepSeek 未返回落子内容")
         return content
 
     @staticmethod
@@ -233,25 +270,35 @@ class DeepSeekStrategy:
 
         match = _JSON_OBJECT_PATTERN.search(content)
         if match is None:
-            raise DeepSeekError("DeepSeek 返回内容中没有 JSON 落点")
+            raise DeepSeekResponseError("DeepSeek 返回内容中没有 JSON 落点")
         try:
             data = json.loads(match.group(0))
         except json.JSONDecodeError as exc:
-            raise DeepSeekError("DeepSeek 返回的落点 JSON 无效") from exc
+            raise DeepSeekResponseError("DeepSeek 返回的落点 JSON 无效") from exc
         if not isinstance(data, dict):
-            raise DeepSeekError("DeepSeek 落点不是 JSON 对象")
+            raise DeepSeekResponseError("DeepSeek 落点不是 JSON 对象")
 
-        try:
-            row = int(data["row"])
-            col = int(data["col"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DeepSeekError("DeepSeek 落点必须包含整数 row 和 col") from exc
+        move_value = data.get("move")
+        if isinstance(move_value, str):
+            move_match = re.fullmatch(r"([A-Oa-o])(1[0-5]|[1-9])", move_value.strip())
+            if move_match is None:
+                raise DeepSeekResponseError("DeepSeek 返回的 move 坐标格式无效")
+            row = int(move_match.group(2)) - 1
+            col = ord(move_match.group(1).upper()) - ord("A")
+        else:
+            try:
+                row = int(data["row"])
+                col = int(data["col"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DeepSeekResponseError(
+                    "DeepSeek 落点必须包含 move，或整数 row 和 col"
+                ) from exc
 
         size = len(snapshot)
         if not (0 <= row < size and 0 <= col < size):
-            raise DeepSeekError("DeepSeek 返回了越界落点")
+            raise DeepSeekResponseError("DeepSeek 返回了越界落点")
         if snapshot[row][col] is not Stone.EMPTY:
-            raise DeepSeekError("DeepSeek 返回了已占用的落点")
+            raise DeepSeekResponseError("DeepSeek 返回了已占用的落点")
         return row, col
 
     @staticmethod
